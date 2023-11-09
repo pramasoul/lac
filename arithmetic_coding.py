@@ -9,7 +9,7 @@ class ACSampler:
         self.accumulator = CarryBuffer()
         self.compress_tokens = None
         self.compress_output = None
-        self.decompress_bits = None
+        self.decompress_bits = iter(())
         self.decompress_output = None
         self.bits_per_token = None
     def reset(self):
@@ -17,12 +17,21 @@ class ACSampler:
         self.accumulator.reset()
         self.d_bits = 0
         self.d_bits_ulp = self.region.one
+    def flush_compress(self):
+        for bit in self.region.step(1,2,3):
+            for b in self.accumulator.add(bit,self.region.definite):
+                if self.compress_output is not None:
+                    self.compress_output(b)
+        for b in self.accumulator.flush():
+            if self.compress_output is not None:
+                self.compress_output(b)                    
+        self.region.reset()
     def sample(self,pdf):
         pdf = np.array(pdf,dtype=np.float64)
         pdf += self.get_lop_bias(pdf)
         pdf *= self.region.one/np.sum(pdf)
         cdf = np.cumsum(pdf).astype(np.uint64)
-        return self.sample_cdf(cdf)
+        return self.sample_scaled_cdf(cdf)
     def get_lop_bias(self,pdf):
         #want min((pdf+bias)/sum(pdf+bias)) >= 2 ulp
         # (min(pdf)+bias) / (sum(pdf) + len(pdf)*bias) >= 2 ulp
@@ -99,13 +108,13 @@ class Region:
     def entropy(self):
         return self.precision - math.log2(self.span)
     def entropy_of(self,l,h,d=None):
-        l,h = self.map(l,d),self.map(h+1,d)-1
-        return math.log2(self.span) - math.log2(h-l+1)
+        l,h = self.map(l,d),self.map(h,d)
+        return math.log2(self.span) - math.log2(h-l)
     def map(self,v,d=None):
         d = d if d is not None else self.one
         return self.low + (self.span * v) // d
     def step(self,l,h,d=None):
-        self.low,self.high = self.map(l,d),self.map(h+1,d)-1
+        self.low,self.high = self.map(l,d),self.map(h,d)-1
         yield from self.emit()
     def emit(self):
         while self.span * 2 <= self.one:
@@ -137,12 +146,13 @@ class CarryBuffer:
         self.buf = (self.bits << 1) + bit
         self.bits += 1
         if definite:
-            while self.bits > 0:
-                b = self.buf >> self.bits
-                yield b
-                self.buf &= b-1
-                self.bits -= 1
-
+            yield from self.flush()
+    def flush(self):
+        while self.bits > 0:
+            b = self.buf >> self.bits
+            yield b
+            self.buf &= b-1
+            self.bits -= 1
 
         
         
