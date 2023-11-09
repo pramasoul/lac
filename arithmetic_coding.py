@@ -3,6 +3,9 @@ import math
 
 
 
+
+
+
 class ACSampler:
     def __init__(self,precision=48):
         self.region = Region(precision)
@@ -12,6 +15,22 @@ class ACSampler:
         self.decompress_bits = iter(())
         self.decompress_output = None
         self.bits_per_token = None
+        self.on_decompress_done = None
+        self.on_compress_done = None
+    @property
+    def decompress_bits(self):
+        return self._decompress_bits
+    @decompress_bits.setter
+    def decompress_bits(self,bits):
+        self._decompress_bits = iter(bits)
+        self.decompress_done = False
+    @property
+    def compress_tokens(self):
+        return self._compress_tokens
+    @compress_tokens.setter
+    def compress_tokens(self,toks):
+        self._compress_tokens = iter(toks)
+        self.compress_done = False
     def reset(self):
         self.region.reset()
         self.accumulator.reset()
@@ -20,11 +39,9 @@ class ACSampler:
     def flush_compress(self):
         for bit in self.region.step(1,2,3):
             for b in self.accumulator.add(bit,self.region.definite):
-                if self.compress_output is not None:
-                    self.compress_output(b)
+                if self.compress_output: self.compress_output(b)
         for b in self.accumulator.flush():
-            if self.compress_output is not None:
-                self.compress_output(b)                    
+            if self.compress_output: self.compress_output(b)                    
         self.region.reset()
     def sample(self,pdf):
         pdf = np.array(pdf,dtype=np.float64)
@@ -48,21 +65,30 @@ class ACSampler:
                 f"cdf has unencodable token {np.argmin(mpdf)} (pdf = {minpdf})."\
                 " Perhaps try using get_lop_bias or adding an arange to the cdf."
         if self.compress_tokens:
-            tok = next(self.compress_tokens)
+            try:
+                tok = next(self.compress_tokens)
+            except StopIteration:
+                self.compress_done = True
+                if self.on_compress_done: self.on_compress_done()
+                tok = 0
             low = int(cdf[tok-1]) if tok else 0
             high = int(cdf[tok])
             denom = int(cdf[-1])
             if self.bits_per_token: self.bits_per_token(self.region.entropy_of(low,high,denom))
             for bit in self.region.step(low,high,denom):
                 for b in self.accumulator.add(bit,self.region.definite):
-                    if self.compress_output is not None:
-                        self.compress_output(b)
+                    if self.compress_output: self.compress_output(b)
             return tok
         else:
             denom = int(cdf[-1])
             lookup = lambda p:np.searchsorted(cdf,self.region.map(p) * denom // self.region.one,side='left')
             while lookup(self.d_bits) != lookup(self.d_bits+self.d_bits_ulp):
-                bit = next(self.decompress_bits)
+                try:
+                    bit = next(self.decompress_bits)
+                except StopIteration:
+                    self.decompress_done = True
+                    if self.on_decompress_done: self.on_decompress_done()
+                    bit = 0
                 self.d_bits_ulp >>= 1
                 self.d_bits += bit*self.d_bits_ulp
             tok = lookup(self.d_bits)
@@ -75,9 +101,7 @@ class ACSampler:
                 self.d_bits = (self.d_bits << 1) & mask
             if self.decompress_output: self.decompress_output(tok)
             return tok
-
-
-
+        
 
 
 class Region:
