@@ -10,13 +10,13 @@ class ACSampler:
     def __init__(self,precision=48):
         self.region = Region(precision)
         self.accumulator = CarryBuffer()
-        self.compress_tokens = None
-        self.compress_output = None
-        self.decompress_bits = iter(())
-        self.decompress_output = None
-        self.bits_per_token = None
-        self.on_decompress_done = None
-        self.on_compress_done = None
+        self.compress_tokens = None # Set to a provider of the tokens to compress
+        self.compress_output = None # Set to a function to be called with each bit as compressed
+        self.decompress_bits = iter(()) # Set to a provider of the bits to decompress
+        self.decompress_output = None # Optionally a function to be called with each decompressed token
+        self.bits_per_token = None # Optional function to observe the instantaneous bits per token
+        self.on_decompress_done = None # Optional callback after all bits decompressed and tokens returned
+        self.on_compress_done = None # Optional callback after compress_tokens is empty. Still need to flush_compress()
         self.reset()
     def __repr__(self):
         l = self.d_bits_ulp.bit_length()
