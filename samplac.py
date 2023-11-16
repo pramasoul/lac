@@ -127,8 +127,8 @@ def main(argv):
         def bpt(v,s=[0,0]):
             s[0] += 1
             s[1] += v
-            #print(f"\x1b[Kcompressed {s[0]} tokens to {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}",end="\r")
-            print(f"compressed {s[0]} tokens to {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}")
+            print(f"\x1b[Kcompressed {s[0]} tokens to {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}",end="\r")
+            #print(f"compressed {s[0]} tokens to {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}")
         sampler.bits_per_token = bpt
         
     if args.decompress:
@@ -150,8 +150,8 @@ def main(argv):
         def bpt(v,s=[0,0]):
             s[0] += 1
             s[1] += v
-            #print(f"\x1b[Kdecompressed {s[0]} digits from {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}",end="\r")
-            print(f"decompressed {s[0]} digits from {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}")
+            print(f"\x1b[Kdecompressed {s[0]} digits from {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}",end="\r")
+            #print(f"decompressed {s[0]} digits from {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}")
 
         sampler.bits_per_token = args.verbose and bpt or None
         def decomp_done():
@@ -182,7 +182,7 @@ def main(argv):
     with torch.no_grad():
         with ctx:
             y = model.compresserate(x, sampler, device=device, temperature=temperature)
-        if args.verbose:
+        if False and args.verbose:
             print(decode(y[0].tolist()))
             print('---------------')
 
