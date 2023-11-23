@@ -27,8 +27,8 @@
 #   |  |########|       -> 2
 #   flush: emit the fewest bits to have the correct last symbol
 #                   -> 1
-#  input: bbc = 2+3+9 = 14/27 = .518... to .555...
-#  output: 01121 = 10001 = 17/32 = .53125 to .5625
+#  input: 0.bbc = 2+3+9 = 14/27 = .518... to .555...
+#  output: 0.01121 = 10001 = 17/32 = .53125 to .5625
 #                       slight missmatch is due to precision loss in the diagrams
 #
 # now decoding 100001
@@ -39,7 +39,7 @@
 #   now marked region is entirely within a symbol so we can emit that symbol
 #   |   |_|#|   | b <- 
 #   perform the zoom in (fake emit bits) and recalculate the marked region all the way from the beginning
-#      note: recalculation is unnescessary if the fixed point denominator is a power of B (2 for binary)
+#      note: recalculation is unnecessary if the fixed point denominator is a power of B (2 for binary)
 #          because no precision is lost stepping the marked region
 #   |     |#####|###########|
 #   |     |#####|##|
@@ -51,7 +51,7 @@
 #   |   |#######| c <- 
 #
 #
-#  things to note to avoid beign tricked
+#  things to note to avoid being tricked
 #   B is the language whose regions are being transformed to [0,1)
 #   A is the language whose distribution is being mapped to [l,h)
 #  i.e. since B is binary, the "zoom in" is always by a factor of 2
