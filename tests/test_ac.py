@@ -1,4 +1,4 @@
-# Test arithmetic_coding.py
+# Test ac_for_z.py
 
 import pytest
 import torch
@@ -11,7 +11,8 @@ from typing import Callable, List
 
 import numpy as np
 
-from arithmetic_coding import ACSampler, packbits, unpackbits
+#from arithmetic_coding import ACSampler, packbits, unpackbits
+from ac_for_z import ACSampler, packbits, unpackbits
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG,
@@ -33,6 +34,17 @@ def test_create_file(tmp_path):
     p.write_text(CONTENT, encoding="utf-8")
     assert p.read_text(encoding="utf-8") == CONTENT
     assert len(list(tmp_path.iterdir())) == 1
+
+
+
+# from transformers import GPT2Tokenizer
+
+# # Load the GPT-2 tokenizer
+# tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+
+# # Get the integer value of the '<|endoftext|>' token
+# token_id = tokenizer.encode('<|endoftext|>', add_special_tokens=False)
+# print(token_id)  # This will print the integer value
 
 
 @pytest.fixture
@@ -57,14 +69,18 @@ def decompression_done(sampler: ACSampler) -> None:
     sampler.decompress_output = None
     sampler.bits_per_token = None
 
-#def compress_base_ten(digits:str, pdf: [int] = [0.1]*10) -> bytearray:
+#from acs_adapter import ACSamplerAdapted
 def compress_base_ten(digits:str,
-                      pdfun: Callable[[int], List[int]] = lambda i: [0.1]*10) -> bytearray:
+                      pdfun: Callable[[int], List[int]] = lambda i: [0.1]*11) -> bytearray:
+    stop_token = 10
     output = bytearray(0)
-    sampler = ACSampler()
+    #sampler = ACSamplerAdapted()
+    sampler = ACSampler(end_of_text_token=10)
     def tokgen():
         for d in digits:
             yield int(d)
+        yield stop_token
+        yield stop_token
     sampler.compress_tokens = tokgen()
     sampler.compress_output = packbits(output.append)
     sampler.on_compress_done = lambda: compression_done(sampler)
@@ -77,42 +93,56 @@ def compress_base_ten(digits:str,
     return output
 
 def decompress_base_ten(data: bytearray,
-                        pdfun: Callable[[int], List[int]] = lambda i: [0.1]*10) -> str:
-    output = ""
-    sampler = ACSampler()
+                        pdfun: Callable[[int], List[int]] = lambda i: [0.1]*11) -> str:
+    stop_token = 10
+    #sampler = ACSamplerAdapted()
+    sampler = ACSampler(end_of_text_token=10)
     sampler.decompress_bits = unpackbits(data)
-    sampler.decompress_output = lambda tok: None
+    output_tokens = []
+    def append_to_output(s):
+        output_tokens.append(s)
+    sampler.decompress_output = append_to_output
     sampler.on_decompress_done = lambda: decompression_done(sampler)
     i = 0
     while not sampler.decompress_done:
         logging.debug(f"sampler {sampler}")
         token = sampler.sample(pdfun(i))
-        output += str(token)
+        logging.debug(f"token {token}")
+        if token == stop_token:
+            #FIXME: what is right here? compression_done(sampler)
+            sampler.decompress_done = True
+            break
+        #output += str(token)
         i += 1
-    logging.debug(f"decompress_base_ten {sampler}")
+    output = "".join(str(tok) for tok in output_tokens)
+    logging.debug(f"decompress_base_ten {sampler} output {output}")
     return output
 
+@pytest.mark.skip(reason="Output format in flux")
 def test_compress_base_ten():
     digit_str = '3' * 14
     z = compress_base_ten(digit_str)
     assert isinstance(z, bytearray)
     assert hexlify(z) == b'555555555554'
 
-@pytest.mark.skip(reason='need stop token mechanism')
+@pytest.mark.skip(reason='Output format in flux')
 def test_decompress_base_ten():
     z = unhexlify('555555555554')
     assert decompress_base_ten(z) == '3'*14
 
-@pytest.mark.skip(reason='need stop token mechanism')
+#@pytest.mark.skip(reason='need stop token mechanism')
 def test_compress_decompress_base_ten():
+    digit_str = "31"
+    z = compress_base_ten(digit_str)
+    assert decompress_base_ten(z) == digit_str
     digit_str = "314159265358979323846"
     z = compress_base_ten(digit_str)
     assert decompress_base_ten(z) == digit_str
 
 def pdf_leveling_tilt(i: int) -> List[int]:
-    return (np.arange(10) + i).tolist()
+    return (np.arange(11) + i).tolist()
 
-@pytest.mark.skip(reason='need stop token mechanism')
+#@pytest.mark.skip(reason='need stop token mechanism')
 def test_compress_decompress_base_ten_varying_pdf():
     digit_str = "314159265358979323846"
     z = compress_base_ten(digit_str, pdfun=pdf_leveling_tilt)
@@ -126,21 +156,21 @@ def test_compress_base_ten_varying_pdf():
 
 def make_pdf_digit_oracle(s: str) -> Callable[[int], List[int]]:
     def pdfun(i: int) -> List[int]:
-        v = [0] * 10
+        v = [0] * 10 + [0.1]
         try:
             v[int(s[i])] = 1
         except IndexError: # Ran off end of hint string
-            v = [0.1] * 10
+            v = [0.1] * 11
         return v
     return pdfun
 
 def test_make_pdf_digit_oracle():
     digit_str = "314159265358979323846"
     pdfun = make_pdf_digit_oracle(digit_str)
-    assert pdfun(0) == [0,0,0,1,0,0,0,0,0,0]
-    assert pdfun(1) == [0,1,0,0,0,0,0,0,0,0]
-    assert pdfun(5) == [0,0,0,0,0,0,0,0,0,1]
-    assert pdfun(100) == [0.1] * 10
+    assert pdfun(0) == [0,0,0,1,0,0,0,0,0,0,0.1]
+    assert pdfun(1) == [0,1,0,0,0,0,0,0,0,0,0.1]
+    assert pdfun(5) == [0,0,0,0,0,0,0,0,0,1,0.1]
+    assert pdfun(100) == [0.1] * 11
 
 def test_compress_base_ten_digit_oracle():
     digit_str = '3' * 14
@@ -149,37 +179,48 @@ def test_compress_base_ten_digit_oracle():
     assert isinstance(z, bytearray)
     #FIXME:assert hexlify(z) == b'555555555554'
 
+#@pytest.mark.skip(reason="FIXME")
 def test_compress_decompress_base_ten_digit_oracle():
     digit_str = "314159265358979323846"
     pdfun = make_pdf_digit_oracle(digit_str)
     z = compress_base_ten(digit_str, pdfun=pdfun)
-    assert decompress_base_ten(z, pdfun=pdfun) == digit_str
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    #assert dd_str.startswith(digit_str)
+    assert dd_str == digit_str
 
 def test_compress_decompress_base_ten_digit_weak_oracle():
     digit_str = "314159265358979323846"
     orafun = make_pdf_digit_oracle(digit_str)
-    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.1]*10)]
+    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.1]*11)]
     z = compress_base_ten(digit_str, pdfun=pdfun)
-    assert decompress_base_ten(z, pdfun=pdfun) == digit_str
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    #assert dd_str.startswith(digit_str)
+    assert dd_str == digit_str
 
 def test_compress_decompress_base_ten_digit_pretty_good_oracle():
     digit_str = "314159265358979323846"
     orafun = make_pdf_digit_oracle(digit_str)
-    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.01]*10)]
+    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.01]*11)]
     z = compress_base_ten(digit_str, pdfun=pdfun)
-    assert decompress_base_ten(z, pdfun=pdfun) == digit_str
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    #assert dd_str.startswith(digit_str)
+    assert dd_str == digit_str
 
 def test_compress_decompress_base_ten_digit_impressive_oracle():
     digit_str = "314159265358979323846"
     orafun = make_pdf_digit_oracle(digit_str)
-    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.0001]*10)]
+    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.0001]*11)]
     z = compress_base_ten(digit_str, pdfun=pdfun)
-    assert decompress_base_ten(z, pdfun=pdfun) == digit_str
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    #assert dd_str.startswith(digit_str)
+    assert dd_str == digit_str
 
 def test_compress_decompress_base_ten_digit_quite_impressive_oracle():
     digit_str = "314159265358979323846"
     orafun = make_pdf_digit_oracle(digit_str)
-    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.0000001]*10)]
+    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [0.0000001]*11)]
     z = compress_base_ten(digit_str, pdfun=pdfun)
-    assert decompress_base_ten(z, pdfun=pdfun) == digit_str
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    #assert dd_str.startswith(digit_str)
+    assert dd_str == digit_str
 
