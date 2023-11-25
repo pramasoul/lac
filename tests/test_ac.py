@@ -118,6 +118,16 @@ def decompress_base_ten(data: bytearray,
     logging.debug(f"decompress_base_ten {sampler} output {output}")
     return output
 
+@pytest.fixture(scope="session")
+def long_pi():
+    import mpmath
+    mpmath.mp.dps = 10010
+    pi_str = mpmath.nstr(mpmath.pi, 10001)
+    return pi_str[0] + pi_str[2:]
+
+def test_long_pi(long_pi):
+    assert long_pi.startswith("314159265358979323846")
+
 @pytest.mark.skip(reason="Output format in flux")
 def test_compress_base_ten():
     digit_str = '3' * 14
@@ -130,19 +140,26 @@ def test_decompress_base_ten():
     z = unhexlify('555555555554')
     assert decompress_base_ten(z) == '3'*14
 
-#@pytest.mark.skip(reason='need stop token mechanism')
-def test_compress_decompress_base_ten():
-    digit_str = "31"
+def test_compress_decompress_base_ten(long_pi):
+    digit_str = long_pi[:2]
     z = compress_base_ten(digit_str)
     assert decompress_base_ten(z) == digit_str
-    digit_str = "314159265358979323846"
+    digit_str = long_pi[:100]
+    z = compress_base_ten(digit_str)
+    assert decompress_base_ten(z) == digit_str
+    digit_str = long_pi[:1000]
+    z = compress_base_ten(digit_str)
+    assert decompress_base_ten(z) == digit_str
+
+@pytest.mark.slow
+def test_compress_decompress_base_ten_long(long_pi):
+    digit_str = long_pi
     z = compress_base_ten(digit_str)
     assert decompress_base_ten(z) == digit_str
 
 def pdf_leveling_tilt(i: int) -> List[int]:
     return (np.arange(11) + i).tolist()
 
-#@pytest.mark.skip(reason='need stop token mechanism')
 def test_compress_decompress_base_ten_varying_pdf():
     digit_str = "314159265358979323846"
     z = compress_base_ten(digit_str, pdfun=pdf_leveling_tilt)
