@@ -37,6 +37,14 @@ class ACSampler:
             mode = "expanding"
         return f"ACSampler({mode},{self.region},{self.accumulator}{in_bits_repr})"
 
+    def copy(self,o=None):
+        if o is None:
+            r = ACSampler()
+            r.region = self.region.copy()
+            r.d_bits = self.d_bits
+            r.d_bits_ulp = self.d_bits_ulp
+            return r
+    
     @property
     def decompress_bits(self):
         return self._decompress_bits
@@ -115,7 +123,7 @@ class ACSampler:
                     self.on_compress_done()
                 tok = 0
             logging.debug(f"c: token {tok}")
-            print("<-",tok)
+            #print("<-",tok)
             low = int(cdf[tok - 1]) if tok else 0
             high = int(cdf[tok])
             denom = int(cdf[-1])
@@ -125,17 +133,17 @@ class ACSampler:
                 for b in self.accumulator.add(bit, self.region.definite):
                     if self.compress_output:
                         self.compress_output(b)
-                print("->",bit)
-                print(self)
+                #print("->",bit)
+                #print(self)
             return tok
         else: # decompressing
-            self.prev = (self.region.copy(),*self.prev) if hasattr(self,"prev") else (self.region.copy(),)
+            self.prev = ([self.copy(),[],[]],*self.prev) if hasattr(self,"prev") else ([self.copy(),[],[]],)
             denom = int(cdf[-1])
-            lookup = lambda p: bisect.bisect_right(cdf, p, key=lambda v:self.region.map(v,denom))
-            print("[",self.region.low,self.region.high+1,")")
-            print(cdf)
-            while lookup(self.d_bits) != lookup(self.d_bits + self.d_bits_ulp):
-                print(lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp),self.d_bits,self.d_bits+self.d_bits_ulp,(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-self.region.low)/self.region.span)
+            lookup = lambda p: bisect.bisect_right(cdf, p, key=lambda v:self.region.map(int(v),denom))
+            #print("[",self.region.low,self.region.high+1,")")
+            #print(cdf)
+            while lookup(self.d_bits) != lookup(self.d_bits + self.d_bits_ulp - 1):
+                #print(lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp-1),self.d_bits,self.d_bits+self.d_bits_ulp,(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-self.region.low)/self.region.span)
                 try:
                     bit = next(self.decompress_bits)
                 except StopIteration:
@@ -143,9 +151,13 @@ class ACSampler:
                     if self.on_decompress_done:
                         self.on_decompress_done()
                     bit = 0
+                if hasattr(self,"prev") :
+                    self.prev[0][1].append(bit)
                 self.d_bits_ulp >>= 1
-                self.d_bits += bit * self.d_bits_ulp
-            print("r",lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp-1),(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-1-self.region.low)/self.region.span)
+                assert self.d_bits_ulp,"probability underflow (needed too many bits to resolve token (this error should never appear))"
+                assert self.d_bits & (self.d_bits_ulp-1) == 0,"d_bits has set bits where it shouldnt"
+                self.d_bits |= bit * self.d_bits_ulp
+            #print("r",lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp-1),(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-1-self.region.low)/self.region.span)
             tok = lookup(self.d_bits)
             assert 0 <= tok < len(cdf)
             logging.debug(f"d: tok {tok}")
@@ -153,18 +165,22 @@ class ACSampler:
                 if self.on_decompress_done:
                     self.on_decompress_done()
             else:
-                print(self)
-                print("->> tok:",tok)
+                #print(self)
+                #print("->> tok:",tok)
                 low = int(cdf[tok - 1]) if tok else 0
+
                 high = int(cdf[tok])
                 if self.bits_per_token:
                     self.bits_per_token(self.region.entropy_of(low, high, denom))
                 for bit in self.region.step(low, high, denom):
-                    print(self)
-                    print("->",bit)
-                    self.d_bits_ulp += self.d_bits_ulp + (self.d_bits_ulp == 0)
-                    # assert self.d_bits_ulp <= self.region.one
+                    #print(self)
+                    #print("->",bit)
+                    if hasattr(self,"prev") :
+                        self.prev[0][2].append(bit)
+                    self.d_bits_ulp <<= 1
+                    #assert self.d_bits_ulp <= self.region.one
                     self.d_bits = (self.d_bits << 1) - self.region.one * bit
+                    
                 if self.decompress_output:
                     self.decompress_output(tok)
             return tok
