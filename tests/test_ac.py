@@ -74,7 +74,6 @@ def compress_base_ten(digits:str,
                       pdfun: Callable[[int], List[int]] = lambda i: [0.1]*11) -> bytearray:
     stop_token = 10
     output = bytearray(0)
-    #sampler = ACSamplerAdapted()
     sampler = ACSampler(end_of_text_token=10)
     def tokgen():
         for d in digits:
@@ -241,3 +240,108 @@ def test_compress_decompress_base_ten_digit_quite_impressive_oracle():
     #assert dd_str.startswith(digit_str)
     assert dd_str == digit_str
 
+@pytest.mark.slow
+def test_compress_decompress_base_ten_oracular_long_1(long_pi):
+    digit_str = long_pi
+    orafun = make_pdf_digit_oracle(digit_str)
+    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [1/100,000]*11)] # sic
+    z = compress_base_ten(digit_str, pdfun=pdfun)
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    assert dd_str == digit_str
+
+@pytest.mark.slow
+def test_compress_decompress_base_ten_oracular_long_2(long_pi):
+    digit_str = long_pi
+    orafun = make_pdf_digit_oracle(digit_str)
+    pdfun = lambda i: [o+b for o,b in zip(orafun(0), [1/100_000]*11)] # sic
+    z = compress_base_ten(digit_str, pdfun=pdfun)
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    assert dd_str == digit_str
+
+@pytest.mark.slow
+def test_compress_decompress_base_ten_oracular_long_i(long_pi):
+    digit_str = long_pi
+    orafun = make_pdf_digit_oracle(digit_str)
+    pdfun = lambda i: [o+b for o,b in zip(orafun(i), [1/100_000]*11)]
+    z = compress_base_ten(digit_str, pdfun=pdfun)
+    dd_str = decompress_base_ten(z, pdfun=pdfun)
+    assert dd_str == digit_str
+
+def compress_raw(toks,
+                 pdfun: Callable[[int], List[int]] = lambda i: [1]*2, prec:int = 48):
+    output = []
+    sampler = ACSampler(precision=prec)
+    sampler.compress_tokens = toks
+    sampler.compress_output = output.append
+    def comp_done():
+        sampler.flush_compress()
+        sampler.compress_output = None
+    sampler.on_compress_done = comp_done
+    i = 0
+    while not sampler.compress_done:
+        logging.debug(f"sampler {sampler}")
+        token = sampler.sample(pdfun(i))
+        yield from output
+        output.clear()
+        i += 1
+    logging.debug(f"compress_raw {sampler}")
+    yield from output
+
+def decompress_raw(bits,
+                   pdfun: Callable[[int], List[int]] = lambda i: [1]*2,prec:int = 48):
+    sampler = ACSampler(precision=prec)
+    sampler.decompress_bits = bits
+    i = 0
+    while not sampler.decompress_done:
+        logging.debug(f"sampler {sampler}")
+        token = sampler.sample(pdfun(i))
+        yield token
+        logging.debug(f"token {token}")
+        i += 1
+    logging.debug(f"decompress_raw {sampler}")
+
+
+def test_unbalanced_ternary():
+    inp = [1,0,2]
+    pdfunc = lambda i:[1,0,1]
+    prec = 4
+    bits = list(compress_raw(inp,pdfunc,prec=prec))
+    print(bits)
+    toks = list(decompress_raw(bits,pdfunc,prec=prec))
+    assert toks[:len(inp)] == inp
+    #                    
+    #       0 1 2 3 4 5 6 7 8 9 a b c d e f|0 1 2 3 4 5 6 7 8
+    # tok:  0 0 0 0 0 0 0 1 1 2 2 2 2 2 2 2|
+    # "1"->               [ . )            |                  ->  0
+    #                                   [ .|. . )             ->  1
+    #                               [ . . .|. . . . )         ->  1
+    #                       [ . . . . . . .|. . . . . . . . )
+    #                       [ . . . . . . )|                  ->  1
+    #       [ . . . . . . . . . . . . . )  |
+    #       0 1 2 3 4 5 6 8 9 a b c d e 10 |
+    #       0 0 0 0 0 0 0 1 2 2 2 2 2 2    |
+    # "0"-> [ . . . . . . )                |                  ->  0
+    #       [                           )  |
+    # "2"->                 [           )  |                  ->  1
+    #       [                       )      |   
+    #flush  0 0 0 0 1 1 1 1 2 2 2 2        |                
+    #               [       )              |  -> 0
+    #                       [              |) -> 1
+    #       [                              |)   
+    #    01110101               
+
+    #what we got: (the error was using bisect_left instead of bisect_right)
+    #       0 1 2 3 4 5 6 7 8 9 a b c d e f|0 1 2 3 4 5 6 7 8 9 a b c d e f
+    # "1"->                                |                               -> 0
+    #                                   [  |    )                          -> 1
+    #                               [      |        )                      -> 1
+    #                       [              |                )
+    # "0"->                                |                               -> 1
+    #       [                           )  |
+    #       0 0 0 0 0 0 1 2 2 2 2 2 2 2 
+    # "2"->               [             )  |                               -> 0
+    #                                   
+    # flush -> 2
+    # 011110
+    
+    
