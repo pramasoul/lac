@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 Compress using a trained model as a predictor
 """
@@ -149,7 +150,18 @@ def provide_model(args):
     return model, dtype, x
 
 
-from toktst import tokens_encoded_from
+def tokens_encoded_from(inf):
+    enc = tiktoken.get_encoding("gpt2")
+    # Without reading the entire file before tokenizing, we cannot
+    # trust the tokenization at the margins of each buffer of text
+    # we tokenize.
+    # FIXME: for now we trust that there will be line breaks often
+    # enough, and that a line break is a guarantee of token break.
+    for line in inf:
+        for tok in enc.encode(line):
+            yield tok
+
+
 
 def main(argv):
     parser = argparse.ArgumentParser(description="Arithmetic compression with LLM predictor.",
@@ -176,7 +188,7 @@ def main(argv):
     args = parser.parse_args()
 
     versions = get_versions()
-    args.verbose and pprint(versions)
+    args.verbose > 1 and pprint(versions)
 
     if args.output and args.output != '-':
         outf = open(args.output, 'w+b')
@@ -192,7 +204,7 @@ def main(argv):
 
     sampler = ACSampler(precision=args.precision,
                         end_of_text_token=eot_token)
-    if args.verbose > 1:
+    if args.verbose > 2:
         def bpt(v,s=[0,0]):
             s[0] += 1
             s[1] += v
@@ -239,9 +251,14 @@ def main(argv):
     else:
         # run compression
         def tokens_with_eot():
-            yield from tokens_encoded_from(args.input)
+            file_name = args.input
+            if file_name == '-':
+                inf = sys.stdin
+            else:
+                inf = open(file_name, 'r')
+            yield from tokens_encoded_from(inf)
             yield eot_token
-            yield eot_token # FIXME: needed twice
+            yield eot_token # FIXME: needed twice still?
         sampler.compress_tokens = tokens_with_eot()
         def compressed_byte_writer(v):
             outf.write(bytes((v,)))
