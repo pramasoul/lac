@@ -28,7 +28,7 @@ class ACSampler:
 
     def __repr__(self):
         l = self.d_bits_ulp.bit_length()
-        in_bits_repr = (bin(self.d_bits + self.region.one) + "#")[3:-l] + "-" * l
+        in_bits_repr = (bin(self.d_bits + self.region.one) + "##")[3:-l-1] + "-" * (l-1)
         if self.compress_tokens:
             in_bits_repr = ""
             mode = "compressing"
@@ -115,7 +115,7 @@ class ACSampler:
                     self.on_compress_done()
                 tok = 0
             logging.debug(f"c: token {tok}")
-            # print("<-",tok)
+            print("<-",tok)
             low = int(cdf[tok - 1]) if tok else 0
             high = int(cdf[tok])
             denom = int(cdf[-1])
@@ -125,15 +125,17 @@ class ACSampler:
                 for b in self.accumulator.add(bit, self.region.definite):
                     if self.compress_output:
                         self.compress_output(b)
-                # print("->",bit)
-                # print(self)
+                print("->",bit)
+                print(self)
             return tok
         else: # decompressing
+            self.prev = (self.region.copy(),*self.prev) if hasattr(self,"prev") else (self.region.copy(),)
             denom = int(cdf[-1])
-            lookup = lambda p: bisect.bisect_left(cdf, p, key=self.region.map)
-            while lookup(self.d_bits) != lookup(self.d_bits + self.d_bits_ulp - 1):
-                # print(self)
-                # print(lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp-1),(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-1-self.region.low)/self.region.span)
+            lookup = lambda p: bisect.bisect_right(cdf, p, key=lambda v:self.region.map(v,denom))
+            print("[",self.region.low,self.region.high+1,")")
+            print(cdf)
+            while lookup(self.d_bits) != lookup(self.d_bits + self.d_bits_ulp):
+                print(lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp),self.d_bits,self.d_bits+self.d_bits_ulp,(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-self.region.low)/self.region.span)
                 try:
                     bit = next(self.decompress_bits)
                 except StopIteration:
@@ -143,22 +145,23 @@ class ACSampler:
                     bit = 0
                 self.d_bits_ulp >>= 1
                 self.d_bits += bit * self.d_bits_ulp
-            # print(lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp-1),(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-1-self.region.low)/self.region.span)
+            print("r",lookup(self.d_bits),lookup(self.d_bits+self.d_bits_ulp-1),(self.d_bits-self.region.low)/self.region.span,(self.d_bits+self.d_bits_ulp-1-self.region.low)/self.region.span)
             tok = lookup(self.d_bits)
+            assert 0 <= tok < len(cdf)
             logging.debug(f"d: tok {tok}")
             if tok == self.eot_token:
                 if self.on_decompress_done:
                     self.on_decompress_done()
             else:
-                # print(self)
-                # print("->>",tok)
+                print(self)
+                print("->> tok:",tok)
                 low = int(cdf[tok - 1]) if tok else 0
                 high = int(cdf[tok])
                 if self.bits_per_token:
                     self.bits_per_token(self.region.entropy_of(low, high, denom))
                 for bit in self.region.step(low, high, denom):
-                    # print(self)
-                    # print("->",bit)
+                    print(self)
+                    print("->",bit)
                     self.d_bits_ulp += self.d_bits_ulp + (self.d_bits_ulp == 0)
                     # assert self.d_bits_ulp <= self.region.one
                     self.d_bits = (self.d_bits << 1) - self.region.one * bit
@@ -173,7 +176,7 @@ class Region:
         self.reset()
 
     def __repr__(self):
-        return f"Region(prec={self.precision},[{self.low/self.one} {(self.high+1)/self.one}])"
+        return f"Region(prec={self.precision}, [{self.low/self.one} to {(self.high+1)/self.one}) )"
 
     def copy(self, o=None):
         if o is None:
