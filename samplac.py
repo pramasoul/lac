@@ -2,15 +2,75 @@
 Compress using a trained model as a predictor
 """
 import argparse
+import json
 import os
 import pickle
+import struct
+import subprocess
 import sys
+import zlib
 
-from contextlib import nullcontext
+import numpy as np
 import torch
 import tiktoken
+
+from pprint import pprint
+from contextlib import nullcontext
 from modelac import GPTConfig, GPT
 from ac_for_z import ACSampler, packbits, unpackbits
+
+
+__version_bytes__ = bytes([0, 1])
+__version__ = f"{'.'.join(str(int(b)) for b in __version_bytes__)}"
+#__version__ = "0." + __version__ # While under development
+
+def magic_number_bytes():
+    bs = b'LACZ'
+    #bit-reverse the bytes
+    rv = bytes([int(bin(i|256)[3:][::-1],2) for i in bs])
+    try:
+        rv.decode()
+    except UnicodeDecodeError:
+        # This is where we want to be
+        pass
+    else:
+        raise ValueError("Our magic number is UTF decodable, which risks collision with real text files")
+    finally:
+        return rv
+
+def get_versions() -> dict[str]:
+    rv = {
+        "lacz": __version__,
+        "torch": torch.__version__,
+        "cuda": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version(),
+        "sys_cuda": subprocess.check_output("nvcc --version", shell=True).decode(),
+        "python": sys.version,
+        "np": np.__version__
+    }
+    return rv
+
+def lacz_header() -> bytes:
+    rv = []
+    rv.append(magic_number_bytes())
+    rv.append(__version_bytes__)
+    vjz = zlib.compress(json.dumps(get_versions()).encode('utf-8'))
+    rv.append(struct.pack('!H', len(vjz))) # put in the length
+    rv.append(vjz)
+    rv = b''.join(rv)
+    return rv
+
+
+def get_header_and_advance(f):
+    magic_bytes = f.read(4)
+    if magic_bytes != magic_number_bytes():
+        raise ValueError("Wrong magic number for lacz")
+    version_bytes = f.read(2)
+    zjson_header_len = struct.unpack('!H', f.read(2))[0]
+    print(f"{zjson_header_len=}")
+    vjz = f.read(zjson_header_len)
+    versions = json.loads(zlib.decompress(vjz))
+    return version_bytes, versions
 
 
 def provide_model(args):
@@ -32,7 +92,7 @@ def provide_model(args):
     # -----------------------------------------------------------------------------
     torch.set_num_threads(args.threads)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
     torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
@@ -114,6 +174,9 @@ def main(argv):
                         action='count', help="verbosity about internals")
 
     args = parser.parse_args()
+
+    versions = get_versions()
+    args.verbose and pprint(versions)
 
     if args.output and args.output != '-':
         outf = open(args.output, 'w+b')
@@ -207,6 +270,9 @@ def main(argv):
     # footprint in GPU memory by approximately 24MiB).
     if device_type == 'cuda':
         os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
 
     model, dtype, x = provide_model(args)
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
