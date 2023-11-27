@@ -5,6 +5,7 @@ import torch
 import ctypes
 import json
 import logging
+import subprocess
 
 from binascii import hexlify, unhexlify
 from contextlib import contextmanager
@@ -13,15 +14,19 @@ from typing import Callable, List
 
 import numpy as np
 
-import unittest.mock as mock
+# import unittest.mock as mock
+from unittest.mock import mock_open
 
-#from arithmetic_coding import ACSampler, packbits, unpackbits
+# from arithmetic_coding import ACSampler, packbits, unpackbits
 from ac_for_z import ACSampler, packbits, unpackbits
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    handlers=[logging.StreamHandler()])  # StreamHandler logs to console
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()],
+)  # StreamHandler logs to console
+
 
 # Now you can use logging in your tests
 def test_example():
@@ -38,10 +43,9 @@ def test_create_file(tmp_path):
     assert len(list(tmp_path.iterdir())) == 1
 
 
-
 @contextmanager
 def mock_file(initial_data=None):
-    """ A context manager for mocking file operations using BytesIO. """
+    """A context manager for mocking file operations using BytesIO."""
     # Create a BytesIO object with optional initial data
     if initial_data is not None:
         if isinstance(initial_data, str):
@@ -69,30 +73,31 @@ def test_mock_file():
 
 def test_read_file(mocker):
     mock_file_contents = "mock file data"
-    mocker.patch('builtins.open', mock.mock_open(read_data=mock_file_contents))
+    mocker.patch("builtins.open", mock_open(read_data=mock_file_contents))
 
-    with open('mock_file.txt', 'r') as file:
+    with open("mock_file.txt", "r") as file:
         data = file.read()
 
     assert data == mock_file_contents
 
+
 def test_write_file(mocker):
-    mock_write = mock.mock_open()
-    mocker.patch('builtins.open', mock_write)
+    mock_write = mock_open()
+    mocker.patch("builtins.open", mock_write)
 
     data_to_write = "data to be written"
-    with open('mock_file.txt', 'w') as file:
+    with open("mock_file.txt", "w") as file:
         file.write(data_to_write)
 
-    mock_write.assert_called_once_with('mock_file.txt', 'w')
+    mock_write.assert_called_once_with("mock_file.txt", "w")
     mock_write().write.assert_called_once_with(data_to_write)
 
 
 def test_multiple_file_mocks(mocker):
     # Define the mock file contents for different files
     file_mocks = {
-        'foo': mock.mock_open(read_data='data from foo').return_value,
-        'bar': mock.mock_open(read_data='data from bar').return_value
+        "foo": mock_open(read_data="data from foo").return_value,
+        "bar": mock_open(read_data="data from bar").return_value,
     }
 
     # Side effect function to return different mocks based on filename
@@ -100,19 +105,113 @@ def test_multiple_file_mocks(mocker):
         return file_mocks[filename]
 
     # Patch 'open' with the side effect
-    mocker.patch('builtins.open', side_effect=side_effect)
+    mocker.patch("builtins.open", side_effect=side_effect)
 
     # Test reading from 'foo'
-    with open('foo', 'r') as file:
+    with open("foo", "r") as file:
         data = file.read()
-    assert data == 'data from foo'
+    assert data == "data from foo"
 
     # Test reading from 'bar'
-    with open('bar', 'r') as file:
+    with open("bar", "r") as file:
         data = file.read()
-    assert data == 'data from bar'
+    assert data == "data from bar"
 
 
+def my_function():
+    # Example function that reads from one file and writes to another
+    with open("read_file.txt", "r") as f:
+        logging.debug(f"my_function read_file.txt is {f}")
+        data = f.read()
 
+    logging.debug(f"my_function data is {data}")
+
+    with open("write_file.txt", "w") as f:
+        logging.debug(f"my_function write_file.txt is {f}")
+        f.write(data[::-1])  # Just an example transformation
+
+
+def test_my_function(mocker):
+    mock_file_handles = {
+        ("read_file.txt", "r"): mock_open(read_data="Hello World").return_value,
+        ("write_file.txt", "w"): mock_open().return_value,
+    }
+
+    def side_effect(filename, mode):
+        rv = mock_file_handles[(filename, mode)]
+        logging.debug(f"side_effect({filename}, {mode}) returning {rv}")
+        return rv
+
+    mocker.patch("builtins.open", side_effect=side_effect, create=True)
+
+    my_function()
+
+    # Check if the read file was opened correctly
+    logging.debug(f"{mock_file_handles[('read_file.txt', 'r')]=}")
+    mock_file_handles[("read_file.txt", "r")].read.assert_called_once_with()
+
+    # Add any other assertions you need for the write file
+    mock_file_handles[("write_file.txt", "w")].write.assert_called_once_with(
+        "dlroW olleH"
+    )
+
+
+# @pytest.fixture(scope="session")
+def brief_text_file(tmp_path):
+    return tmp_file
+
+
+def test_lac_runnable():
+    out = subprocess.check_output("./lac.py -h", shell=True).decode()
+    assert out.startswith("usage: ")
+
+
+@pytest.mark.slow
+def test_lac_compress_file_to_file_decompress_cpu(tmp_path):
+    test_text = "This is only a test."
+    input_file_path = tmp_path / "in.txt"
+    input_file_path.write_text(test_text, encoding="utf-8")
+    assert input_file_path.read_text(encoding="utf-8") == test_text
+    compressed_file_path = tmp_path / "out.lacz"
+    output_file_path = tmp_path / "out.txt"
+    compress_out = subprocess.check_output(
+        f"./lac.py -i {input_file_path} -o {compressed_file_path}", shell=True
+    ).decode()
+    decompress_out = subprocess.check_output(
+        f"./lac.py -i {compressed_file_path} -d", shell=True
+    ).decode()
+    assert decompress_out == test_text
+    # result = subprocess.run(["./lac.py", "-i", str(input_file_path), "-o", str(compressed_file_path)],
+    #                         stdout=subprocess.PIPE,
+    #                         stderr=subprocess.PIPE,
+    #                         text=True)
+
+    # result = subprocess.run(["./lac.py", "-i", str(compressed_file_path), "-o", str(output_file_path), "-d"],
+    #                         stdout=subprocess.PIPE,
+    #                         stderr=subprocess.PIPE,
+    #                         text=True)
+    # #assert result.stdout == test_text
+    # assert output_file_path.read_text(encoding="utf-8") == test_text
+
+
+@pytest.mark.slow
+def test_lac_compress_file_to_file_decompress_cuda(tmp_path):
+    test_text = "This is only a test."
+    input_file_path = tmp_path / "in.txt"
+    input_file_path.write_text(test_text, encoding="utf-8")
+    assert input_file_path.read_text(encoding="utf-8") == test_text
+    compressed_file_path = tmp_path / "out.lacz"
+    output_file_path = tmp_path / "out.txt"
+    compress_out = subprocess.check_output(
+        f"./lac.py -i {input_file_path} -o {compressed_file_path} --device cuda",
+        shell=True,
+    ).decode()
+    decompress_out = subprocess.check_output(
+        f"./lac.py -i {compressed_file_path} --device cuda -d", shell=True
+    ).decode()
+    assert decompress_out == test_text
+
+
+@pytest.mark.skip(reason="Implement me")
 def test_lacz_header():
     raise NotImplementedError
