@@ -211,6 +211,45 @@ def test_lac_compress_file_to_file_decompress_cuda(tmp_path):
     ).decode()
     assert decompress_out == test_text
 
+@pytest.fixture
+def medium_text():
+    return r"""
+A variety of specific techniques for arithmetic coding have
+historically been covered by US patents, although various well-known
+methods have since passed into the public domain as the patents have
+expired. Techniques covered by patents may be essential for
+implementing the algorithms for arithmetic coding that are specified
+in some formal international standards. When this is the case, such
+patents are generally available for licensing under what is called
+"reasonable and non-discriminatory" (RAND) licensing terms (at least
+as a matter of standards-committee policy). In some well-known
+instances, (including some involving IBM patents that have since
+expired), such licenses were available for free, and in other
+instances, licensing fees have been required. The availability of
+licenses under RAND terms does not necessarily satisfy everyone who
+might want to use the technology, as what may seem "reasonable" for a
+company preparing a proprietary commercial software product may seem
+much less reasonable for a free software or open source project.
+"""
+
+@pytest.mark.slow
+def test_lac_compress_medium_file_to_file_decompress_cuda(tmp_path, medium_text):
+    test_text = medium_text
+    input_file_path = tmp_path / "in.txt"
+    input_file_path.write_text(test_text, encoding="utf-8")
+    assert input_file_path.read_text(encoding="utf-8") == test_text
+    compressed_file_path = tmp_path / "out.lacz"
+    output_file_path = tmp_path / "out.txt"
+    compress_out = subprocess.check_output(
+        f"./lac.py -i {input_file_path} -o {compressed_file_path} --device cuda",
+        shell=True,
+    ).decode()
+    decompress_out = subprocess.check_output(
+        f"./lac.py -i {compressed_file_path} --device cuda -d", shell=True
+    ).decode()
+    assert decompress_out == test_text
+    assert compressed_file_path.stat().st_size / len(test_text) < 0.2
+
 
 @pytest.mark.skip(reason="Implement me")
 def test_lacz_header():
