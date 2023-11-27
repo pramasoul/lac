@@ -11,7 +11,6 @@ from typing import Callable, List
 
 import numpy as np
 
-#from arithmetic_coding import ACSampler, packbits, unpackbits
 from ac_for_z import ACSampler, packbits, unpackbits
 
 # Configure logging
@@ -23,28 +22,6 @@ logging.basicConfig(level=logging.DEBUG,
 def test_example():
     logging.debug("This is a debug message.")
 
-
-CONTENT = "content"
-
-
-def test_create_file(tmp_path):
-    d = tmp_path / "sub"
-    d.mkdir()
-    p = d / "hello.txt"
-    p.write_text(CONTENT, encoding="utf-8")
-    assert p.read_text(encoding="utf-8") == CONTENT
-    assert len(list(tmp_path.iterdir())) == 1
-
-
-
-# from transformers import GPT2Tokenizer
-
-# # Load the GPT-2 tokenizer
-# tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-
-# # Get the integer value of the '<|endoftext|>' token
-# token_id = tokenizer.encode('<|endoftext|>', add_special_tokens=False)
-# print(token_id)  # This will print the integer value
 
 
 @pytest.fixture
@@ -343,5 +320,4 @@ def test_unbalanced_ternary():
     #                                   
     # flush -> 2
     # 011110
-    
     
