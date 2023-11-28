@@ -17,8 +17,8 @@ import numpy as np
 # import unittest.mock as mock
 from unittest.mock import mock_open
 
-# from arithmetic_coding import ACSampler, packbits, unpackbits
-from ac_for_z import ACSampler, packbits, unpackbits
+import lac
+
 
 # Configure logging
 logging.basicConfig(
@@ -251,6 +251,16 @@ def test_lac_compress_medium_file_to_file_decompress_cuda(tmp_path, medium_text)
     assert compressed_file_path.stat().st_size / len(test_text) < 0.2
 
 
-@pytest.mark.skip(reason="Implement me")
 def test_lacz_header():
-    raise NotImplementedError
+    header = lac.lacz_header()
+    with mock_file(header) as f:
+        version_bytes, versions = lac.get_header_and_advance(f)
+        assert f.tell() == len(header)
+    logging.debug(f"{versions=}")
+    assert len(version_bytes) == 2
+    assert version_bytes[0] == 0 # Pre-release
+    assert isinstance(versions, dict)
+    assert set(['cuda', 'cudnn', 'lacz', 'np', 'python', 'sys_cuda', 'torch']) - set(versions.keys()) == set()
+
+
+#@pytest.mark.skip(reason="Implement me")
