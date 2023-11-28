@@ -161,13 +161,41 @@ def brief_text_file(tmp_path):
     return tmp_file
 
 
+def test_lacz_header():
+    header = lac.lacz_header()
+    with mock_file(header) as f:
+        version_bytes, versions = lac.get_header_and_advance(f)
+        assert f.tell() == len(header)
+    logging.debug(f"{versions=}")
+    assert len(version_bytes) == 2
+    assert version_bytes[0] == 0  # Pre-release
+    assert isinstance(versions, dict)
+    # Verify all the entries we expect are actually present
+    assert (
+        set(
+            [
+                "cuda",
+                "cudnn",
+                "lacz",
+                "np",
+                "python",
+                "sys_cuda_build",
+                "sys_cuda_release",
+                "torch",
+            ]
+        )
+        - set(versions.keys())
+        == set()
+    )
+
+
 def test_lac_runnable():
     out = subprocess.check_output("./lac.py -h", shell=True).decode()
     assert out.startswith("usage: ")
 
 
 @pytest.mark.slow
-def test_lac_compress_file_to_file_decompress_cpu(tmp_path):
+def test_lac_compress_file_to_file_decompress_cpu_raw(tmp_path):
     test_text = "This is only a test."
     input_file_path = tmp_path / "in.txt"
     input_file_path.write_text(test_text, encoding="utf-8")
@@ -175,10 +203,10 @@ def test_lac_compress_file_to_file_decompress_cpu(tmp_path):
     compressed_file_path = tmp_path / "out.lacz"
     output_file_path = tmp_path / "out.txt"
     compress_out = subprocess.check_output(
-        f"./lac.py -i {input_file_path} -o {compressed_file_path}", shell=True
+        f"./lac.py -i {input_file_path} -o {compressed_file_path} -F raw", shell=True
     ).decode()
     decompress_out = subprocess.check_output(
-        f"./lac.py -i {compressed_file_path} -d", shell=True
+        f"./lac.py -i {compressed_file_path} -F raw -d", shell=True
     ).decode()
     assert decompress_out == test_text
     # result = subprocess.run(["./lac.py", "-i", str(input_file_path), "-o", str(compressed_file_path)],
@@ -192,6 +220,23 @@ def test_lac_compress_file_to_file_decompress_cpu(tmp_path):
     #                         text=True)
     # #assert result.stdout == test_text
     # assert output_file_path.read_text(encoding="utf-8") == test_text
+
+
+@pytest.mark.slow
+def test_lac_compress_file_to_file_decompress_cpu_auto(tmp_path):
+    test_text = "This is only a test."
+    input_file_path = tmp_path / "in.txt"
+    input_file_path.write_text(test_text, encoding="utf-8")
+    assert input_file_path.read_text(encoding="utf-8") == test_text
+    compressed_file_path = tmp_path / "out.lacz"
+    output_file_path = tmp_path / "out.txt"
+    compress_out = subprocess.check_output(
+        f"./lac.py -i {input_file_path} -o {compressed_file_path}", shell=True
+    ).decode()
+    decompress_out = subprocess.check_output(
+        f"./lac.py -i {compressed_file_path} -d", shell=True
+    ).decode()
+    assert decompress_out == test_text
 
 
 @pytest.mark.slow
@@ -211,10 +256,10 @@ def test_lac_compress_file_to_file_decompress_cuda(tmp_path):
     ).decode()
     assert decompress_out == test_text
 
+
 @pytest.fixture
 def medium_text():
-    return r"""
-A variety of specific techniques for arithmetic coding have
+    return r"""A variety of specific techniques for arithmetic coding have
 historically been covered by US patents, although various well-known
 methods have since passed into the public domain as the patents have
 expired. Techniques covered by patents may be essential for
@@ -229,11 +274,11 @@ instances, licensing fees have been required. The availability of
 licenses under RAND terms does not necessarily satisfy everyone who
 might want to use the technology, as what may seem "reasonable" for a
 company preparing a proprietary commercial software product may seem
-much less reasonable for a free software or open source project.
-"""
+much less reasonable for a free software or open source project."""
+
 
 @pytest.mark.slow
-def test_lac_compress_medium_file_to_file_decompress_cuda(tmp_path, medium_text):
+def test_lac_compress_medium_file_to_file_decompress_cuda_raw(tmp_path, medium_text):
     test_text = medium_text
     input_file_path = tmp_path / "in.txt"
     input_file_path.write_text(test_text, encoding="utf-8")
@@ -241,26 +286,14 @@ def test_lac_compress_medium_file_to_file_decompress_cuda(tmp_path, medium_text)
     compressed_file_path = tmp_path / "out.lacz"
     output_file_path = tmp_path / "out.txt"
     compress_out = subprocess.check_output(
-        f"./lac.py -i {input_file_path} -o {compressed_file_path} --device cuda",
+        f"./lac.py -i {input_file_path} -o {compressed_file_path} -F raw --device cuda",
         shell=True,
     ).decode()
     decompress_out = subprocess.check_output(
-        f"./lac.py -i {compressed_file_path} --device cuda -d", shell=True
+        f"./lac.py -i {compressed_file_path} -F raw --device cuda -d", shell=True
     ).decode()
     assert decompress_out == test_text
     assert compressed_file_path.stat().st_size / len(test_text) < 0.2
 
 
-def test_lacz_header():
-    header = lac.lacz_header()
-    with mock_file(header) as f:
-        version_bytes, versions = lac.get_header_and_advance(f)
-        assert f.tell() == len(header)
-    logging.debug(f"{versions=}")
-    assert len(version_bytes) == 2
-    assert version_bytes[0] == 0 # Pre-release
-    assert isinstance(versions, dict)
-    assert set(['cuda', 'cudnn', 'lacz', 'np', 'python', 'sys_cuda', 'torch']) - set(versions.keys()) == set()
-
-
-#@pytest.mark.skip(reason="Implement me")
+# @pytest.mark.skip(reason="Implement me")

@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import pickle
+import re
 import struct
 import subprocess
 import sys
@@ -17,15 +18,16 @@ import numpy as np
 import torch
 import tiktoken
 
-from pprint import pprint
+from binascii import hexlify
 from contextlib import nullcontext
 from modelac import GPTConfig, GPT
+from pprint import pprint
+
 from ac_for_z import ACSampler, packbits, unpackbits
 
 
 __version_bytes__ = bytes([0, 1])
 __version__ = f"{'.'.join(str(int(b)) for b in __version_bytes__)}"
-# __version__ = "0." + __version__ # While under development
 
 
 def magic_number_bytes():
@@ -45,14 +47,41 @@ def magic_number_bytes():
         return rv
 
 
+def get_nvcc_version_info() -> dict[str]:
+    # FIXME: is nvcc necessarily present on any machine that can run our code? NO, e.g. cpu
+    try:
+        output = subprocess.check_output("nvcc --version", shell=True).decode()
+    except subprocess.CalledProcessError:
+        release_info = build_info = None
+    else:
+        # Regular expression to match the release and build information
+        release_pattern = r"release (\d+\.\d+), V(\d+\.\d+\.\d+)"
+        build_pattern = r"Build (cuda_\d+\.\d+\.r\d+\.\d+/compiler\.\d+_\d+)"
+
+        # Search for matches in the output
+        release_match = re.search(release_pattern, output)
+        build_match = re.search(build_pattern, output)
+
+        # Extract the matched groups if found
+        release_info = release_match.group(2) if release_match else None
+        build_info = build_match.group(1) if build_match else None
+
+    return release_info, build_info
+
+def get_python_version_number_string():
+    return sys.version.split()[0]
+
+
 def get_versions() -> dict[str]:
+    sys_cuda_release, sys_cuda_build = get_nvcc_version_info()
     rv = {
         "lacz": __version__,
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
         "cudnn": torch.backends.cudnn.version(),
-        "sys_cuda": subprocess.check_output("nvcc --version", shell=True).decode(),
-        "python": sys.version,
+        "sys_cuda_build": sys_cuda_build,
+        "sys_cuda_release": sys_cuda_release,
+        "python": get_python_version_number_string(),
         "np": np.__version__,
     }
     return rv
@@ -63,7 +92,7 @@ def lacz_header() -> bytes:
     rv.append(magic_number_bytes())
     rv.append(__version_bytes__)
     vjz = zlib.compress(json.dumps(get_versions()).encode("utf-8"))
-    rv.append(struct.pack("!H", len(vjz)))  # put in the length
+    rv.append(struct.pack("!H", len(vjz)))  # prepend the length
     rv.append(vjz)
     rv = b"".join(rv)
     return rv
@@ -72,10 +101,10 @@ def lacz_header() -> bytes:
 def get_header_and_advance(f):
     magic_bytes = f.read(4)
     if magic_bytes != magic_number_bytes():
-        raise ValueError("Wrong magic number for lacz")
+        raise ValueError(f"Wrong magic number for lacz (got {hexlify(magic_bytes)}, expected {hexlify(magic_number_bytes())}")
     version_bytes = f.read(2)
     zjson_header_len = struct.unpack("!H", f.read(2))[0]
-    print(f"{zjson_header_len=}")
+    logging.debug(f"{zjson_header_len=}")
     vjz = f.read(zjson_header_len)
     versions = json.loads(zlib.decompress(vjz))
     return version_bytes, versions
@@ -231,20 +260,52 @@ def main(argv):
         help="fractional bits in the probability register",
     )
     parser.add_argument(
+        "-F", "--format",
+        default="auto",
+        choices=["auto", "raw", "bighead"],
+        help="the file format to compress or decompress"
+    )
+    parser.add_argument(
         "-v", "--verbose", default=0, action="count", help="verbosity about internals"
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="work quietly")
 
     args = parser.parse_args()
 
-    versions = get_versions()
-    args.verbose > 1 and pprint(versions)
+    our_versions = get_versions()
+    if args.verbose > 1:
+        print("Versions:")
+        pprint(versions)
 
     if args.output and args.output != "-":
         outf = open(args.output, "w+b")
     else:
         outf = sys.stdout.buffer
 
+    if args.input == "-":
+        if args.decompress:
+            inf = sys.stdin.buffer # gives bytes
+        else:
+            inf = sys.stdin     # gives text
+        header_source = sys.stdin.buffer
+    else:
+        inf = open(args.input, args.decompress and "rb" or "r")
+        header_source = inf
+
+    if args.decompress and args.format in ["auto", "bighead"]:
+        input_version_bytes, input_versions = get_header_and_advance(header_source)
+        input_version_str = f"{'.'.join(str(int(b)) for b in input_version_bytes)}"
+        # Is this something we can decompress?
+        # FIXME: get smarter
+        if input_version_bytes != __version_bytes__:
+            s = f"Input file is version {input_version_str} and I am {__version__}. I'm not smart enough to know if I can do this."
+            logging.warning(s)
+            sys.stderr.write(s)
+
+    do_to_files(inf, outf, args)
+
+# Temporary structure during refactoring
+def do_to_files(inf, outf, args):
     device = args.device
     temperature = args.temperature
 
@@ -268,20 +329,16 @@ def main(argv):
 
     if args.decompress:
 
-        def input_generator(in_name):
+        def input_generator():
             def int_yielder(f):
                 b = f.read(1)
                 while b:
                     yield int.from_bytes(b, "big")
                     b = f.read(1)
 
-            if in_name and in_name != "-":
-                with open(in_name, "rb") as inf:
-                    yield from int_yielder(inf)
-            else:
-                yield from int_yielder(sys.stdin.buffer)
+            yield from int_yielder(inf)
 
-        sampler.decompress_bits = unpackbits(input_generator(args.input))
+        sampler.decompress_bits = unpackbits(input_generator())
 
         # enc = tiktoken.get_encoding("gpt2")
         def decompressed_token_writer(tok):
@@ -314,12 +371,11 @@ def main(argv):
 
     else:
         # run compression
+        if args.format in ("auto", "bighead"):
+            outf.write(lacz_header())
+
         def tokens_with_eot():
             file_name = args.input
-            if file_name == "-":
-                inf = sys.stdin
-            else:
-                inf = open(file_name, "r")
             yield from tokens_encoded_from(inf)
             yield eot_token
             yield eot_token  # FIXME: needed twice still?
