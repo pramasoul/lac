@@ -23,9 +23,11 @@ import io
 import os
 import _compression
 
-from _bz2 import BZ2Compressor as LacCompressor
-from _bz2 import BZ2Decompressor as LacDecompressor
-
+# from _bz2 import BZ2Compressor as LacCompressor
+# from _bz2 import BZ2Decompressor as LacDecompressor
+from fake_compressor import FakeCompressor as LacCompressor
+from fake_compressor import FakeDecompressor as LacDecompressor
+# from fake_compressor import make_fake_decompressor as make_decompressor
 
 _MODE_CLOSED   = 0
 _MODE_READ     = 1
@@ -100,7 +102,7 @@ class LacFile(_compression.BaseStream):
 
         if self._mode == _MODE_READ:
             raw = _compression.DecompressReader(self._fp,
-                LacDecompressor, trailing_error=OSError)
+                                                LacDecompressor, trailing_error=OSError)
             self._buffer = io.BufferedReader(raw)
         else:
             self._pos = 0
@@ -312,7 +314,7 @@ def open(filename, mode="rb", compresslevel=9,
             raise ValueError("Argument 'newline' not supported in binary mode")
 
     bz_mode = mode.replace("t", "")
-    binary_file = BZ2File(filename, bz_mode, compresslevel=compresslevel)
+    binary_file = LacFile(filename, bz_mode, compresslevel=compresslevel)
 
     if "t" in mode:
         encoding = io.text_encoding(encoding)
