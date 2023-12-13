@@ -7,7 +7,6 @@ This module provides a file interface, classes for incremental
 __author__ = "Tom Soulanille <soul@prama.com>"
 __homage__author__ = "Nadeem Vawda <nadeem.vawda@gmail.com>"
 
-
 # A shameless mill swap, with some chassis torch work, of python's
 # Lib/bz2.py by Nadeem Vawda
 
@@ -16,6 +15,7 @@ import lac
 from builtins import open as _builtin_open
 import io
 import os
+import sys
 import _compression
 
 # from _bz2 import BZ2Compressor as LacCompressor
@@ -351,3 +351,62 @@ def decompress(data):
                              "end-of-stream marker was reached")
         data = decomp.unused_data
     return b"".join(results)
+
+# Following taken from Lib/gzip.py and adapted
+# gzip.py says at the top:
+# based on Andrew Kuchling's minigzip.py distributed with the zlib module
+
+_COMPRESS_LEVEL_FAST = 1
+_COMPRESS_LEVEL_TRADEOFF = 6
+_COMPRESS_LEVEL_BEST = 9
+
+def main():
+    from argparse import ArgumentParser
+    parser = ArgumentParser(description=
+        "A simple command line interface for the lac module: act like gzip, "
+        "but do not delete the input file.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--fast', action='store_true', help='compress faster')
+    group.add_argument('--best', action='store_true', help='compress better')
+    group.add_argument("-d", "--decompress", action="store_true",
+                        help="decompress")
+
+    parser.add_argument("args", nargs="*", default=["-"], metavar='file')
+    args = parser.parse_args()
+
+    compresslevel = _COMPRESS_LEVEL_TRADEOFF
+    if args.fast:
+        compresslevel = _COMPRESS_LEVEL_FAST
+    elif args.best:
+        compresslevel = _COMPRESS_LEVEL_BEST
+
+    for arg in args.args:
+        if args.decompress:
+            if arg == "-":
+                f = LacFile(filename="", mode="rb", fileobj=sys.stdin.buffer)
+                g = sys.stdout.buffer
+            else:
+                if arg[-5:] != ".lacz":
+                    sys.exit(f"filename doesn't end in .lacz: {arg!r}")
+                f = open(arg, "rb")
+                g = _builtin_open(arg[:-3], "wb")
+        else:
+            if arg == "-":
+                f = sys.stdin.buffer
+                g = LacFile(filename="", mode="wb", fileobj=sys.stdout.buffer,
+                             compresslevel=compresslevel)
+            else:
+                f = _builtin_open(arg, "rb")
+                g = open(arg + ".lacz", "wb")
+        while True:
+            chunk = f.read(io.DEFAULT_BUFFER_SIZE)
+            if not chunk:
+                break
+            g.write(chunk)
+        if g is not sys.stdout.buffer:
+            g.close()
+        if f is not sys.stdin.buffer:
+            f.close()
+
+if __name__ == '__main__':
+    main()
