@@ -56,6 +56,9 @@
 #   A is the language whose distribution is being mapped to [l,h)
 #  i.e. since B is binary, the "zoom in" is always by a factor of 2
 #
+
+__author__="Paul Soulanille <paul@soulanille.net>"
+
 def region_overlap(a,b,c,d):
     #[a,b] with [c,d]
     return max(0,min(d,b)-max(a,c) + 1)
