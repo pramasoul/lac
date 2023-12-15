@@ -82,7 +82,7 @@ class Predictor:
 
     def symbol_to_range(self, s, denom):
         # Gives an increasing tuple of fixed-point probabilities, scaled by denom
-        return (s * denom) // self.n, ((s + 1) * denom) // self.n
+        return -((-s * denom) // self.n), -((-(s + 1) * denom) // self.n)
 
     def accept(self, symbol):
         # update internal model

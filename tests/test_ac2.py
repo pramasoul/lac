@@ -312,7 +312,7 @@ def test_decimal_oracle(long_pi):
 
 
 # Can it handle many symbols?
-@pytest.mark.skip(reason="FAILING")
+# Fixed: @pytest.mark.skip(reason="FAILING")
 def test_AC_many_symbols():
     fib = [1, 2]
     for i in range(10):
