@@ -121,9 +121,9 @@ class CDFPredictor(Predictor):
         return res
 
     def val_to_symbol(self, v, denom):
-        assert 0 <= v <= denom
+        assert 0 <= v < denom, f"val_to_symbol({v=}, {denom=})"
         dist = self.fudged_dist(denom)
-        return bisect.bisect_left(dist, (v * dist[-1]) // denom)
+        return bisect.bisect_right(dist, (v * dist[-1]) // denom)
 
     def symbol_to_range(self, s, denom):
         dist = self.fudged_dist(denom)
@@ -347,7 +347,7 @@ class A_from_bin:
         if ls == hs:
             return self.emit_symbol(ls)
 
-    def emit_symbol(self, s):
+    def emit_symbol(self, s, flushing = False):
         r = self.predictor.symbol_to_range(s, self.h - self.l + 1)
         # assert r[1]-r[0]
         if region_overlap(self.l + r[0], self.l + r[1] - 1, self.lb, self.hb) == 0:
@@ -359,6 +359,7 @@ class A_from_bin:
                 (self.l + r[0], self.l + r[1] - 1),
             )
         #
+        assert flushing or self.l+r[0] <= self.lb <= self.hb <= self.l+r[1]-1, "region escaped window"
         self.h = self.l + r[1] - 1
         self.l += r[0]
         self.predictor.accept(s)
@@ -396,9 +397,9 @@ class A_from_bin:
         while not (self.lb <= self.l and self.h <= self.hb):
             w = self.h - self.l + 1
             ls = self.predictor.val_to_symbol(max(0, self.lb - self.l), w)
-            hs = self.predictor.val_to_symbol(min(w, self.hb - self.l), w)
+            hs = self.predictor.val_to_symbol(min(w-1, self.hb - self.l), w)
             s = max((s for s in range(ls, hs + 1)), key=k)
-            yield self.emit_symbol(s)
+            yield self.emit_symbol(s,True)
         self.l = 0
         self.h = self.denom - 1
         self.lb = 0
@@ -656,7 +657,7 @@ class ModifiedMarkov(Predictor):  # incomplete
     def val_to_symbol(self, v, denom):
         import bisect
 
-        return bisect.bisect_left(self.get_dist(denom), v)
+        return bisect.bisect_right(self.get_dist(denom), v)
 
     def symbol_to_range(self, s, denom):
         dist = self.get_dist(denom)
