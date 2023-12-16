@@ -390,24 +390,87 @@ def test_Codebook(long_pi, long_text):
     assert b.decode(e) == long_text
 
 
-# WIP:
-def ShuffledPredictor(ProbPredictor):
+class ShufflingPredictor(ProbPredictor):
     def __init__(self, probs, seed=42):
+        super().__init__(len(probs))
         self.orig_probs = probs
-        self.probs = self.orig_probs[:]
+        self.seed = seed
         self.rng = random.Random()
         self.reset()
 
     def reset(self):
+        #self.i = 0
         self.probs = self.orig_probs[:]
         self.rng.seed(self.seed)
 
-    
+    def prob(self, symbol):
+        return self.probs[symbol]
 
-def test_AC_wide_probabilities(long_text):
-    cb = CodeBook(''.join(c for c in set(long_text)))
-    vmax = max(cb.encode(long_text))
-    
+    def accept(self,symbol):
+        self.rng.shuffle(self.probs)
+        #self.i += 1
+        super().accept(symbol)
+
+    def copy(self):
+        r = type(self)(self.probs, self.seed)
+        #r.i = self.i
+        return r
+
+
+def test_ShufflingPredictor():
+    p = ShufflingPredictor(list(range(30)), seed=17)
+    # Incomplete
+
+
+def AC_wide_probabilities_test(text, precision=16):
+    cb = CodeBook(''.join(c for c in set(text)))
+    in_data = cb.encode(text)
+    vmax = max(cb.encode(text))
+    sfp = ShuffledFibPDF()
+    probs = sfp()
+    while len(probs) <= vmax:
+        probs.extend(list(a+b for a, b in zip(sfp(), sfp())))
+    probs = probs[:vmax+1]
+    logging.debug(f"AC_wide_probabilties_test {vmax=} {probs=}")
+    predictor = ShufflingPredictor(probs)
+    a = AC(predictor, precision)
+    enc = a.to_bin
+    dec = a.from_bin
+    out_bits = list(enc.bits(in_data))
+    logging.debug(f"AC_wide_probabilties_test {len(text)=} {len(out_bits)=}")
+    recovered = list(dec.run(out_bits))
+    out_text = cb.decode(recovered)
+    assert out_text[:len(in_data)] == text
+    #assert recovered[:len(in_data)] == text
+    #assert len(out_bits) <= len(digit_str) * bpd
+
+
+def test_AC_wide_probabilities_medium(medium_text):
+    AC_wide_probabilities_test(medium_text)
+
+@pytest.mark.slow
+def test_AC_wide_probabilities_various_precision(medium_text):
+    text = medium_text
+    for prec in range(16, 7, -1): # val_to_symbol range assertion fail at precision=5
+        AC_wide_probabilities_test(text, prec)
+    for prec in range(16, 66): # I assume python bigint is coming into play here.
+        # We'll have to revisit once it's numpy'd
+        AC_wide_probabilities_test(text, prec)
+        
+def test_AC_assert_need_enough_precision(medium_text):
+    text = medium_text
+    with pytest.raises(AssertionError) as xinfo:
+        AC_wide_probabilities_test(text, 6)
+    assert ", at least 7" in str(xinfo.value)
+    AC_wide_probabilities_test(text, 7)
+
+
+
+@pytest.mark.slow
+def test_AC_wide_probabilities_long(long_text):
+    AC_wide_probabilities_test(long_text)
+
+
 
 def shufseq(n=30):
     l = list(range(n))

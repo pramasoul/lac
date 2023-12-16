@@ -109,6 +109,8 @@ class CDFPredictor(Predictor):
         )
 
     def fudged_dist(self, denom):
+        assert len(self.dist) <= denom, f"Can't represent {len(self.dist)} symbols with {denom=}.\n" + \
+            f"Suggested fix: use a higher precision in constructing AC, at least {len(self.dist).bit_length()+1}"
         if self.dist[-1] <= denom * self.minp:
             return self.dist
         res = []
@@ -225,8 +227,11 @@ class A_to_bin:
             self.debug_log.append((self.l, self.h, "recv", symbol))
         w = self.h - self.l + 1
         r = self.predictor.symbol_to_range(symbol, w)
+        assert r[1] > r[0], f"{self}.receive_symbol({symbol}) {r=}"
+        was_l, was_h = self.l, self.h
         self.h = self.l + r[1] - 1 # Remember ranges are [l, h) aka open ball on the high side
         self.l += r[0]
+        assert self.l <= self.h, f"{self}.receive_symbol({symbol}) self.l {was_l}->{self.l}, self.h {was_h}->{self.h}"
         self.predictor.accept(symbol)
 
     def decide_bit(self):
