@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import pickle
+import psutil
 import re
 import struct
 import subprocess
@@ -20,7 +21,7 @@ import tiktoken
 
 from binascii import hexlify
 from contextlib import nullcontext
-from modelac import GPTConfig, GPT
+from gpt_model import GPTConfig, GPT
 from pprint import pprint
 
 from ac_for_z import ACSampler, packbits, unpackbits
@@ -117,8 +118,11 @@ def provide_model(args):
     """
     # -----------------------------------------------------------------------------
     init_from = (
-        "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
+        #"resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
+        #"gpt2"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
+        # (they are `{'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}`)
     )
+    init_from = (args.model, "resume")[args.model == "internal"]
     ckpt_path = "ckpt-0600.pt"  # HACK to allow setting by configurator.py
     start = "\n"  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
     temperature = (
@@ -135,6 +139,10 @@ def provide_model(args):
     # FIXME:
     compile = False  # use PyTorch 2.0 to compile the model to be faster
     # -----------------------------------------------------------------------------
+    # for k, v in vars(args).items():
+    #     logging.debug(f"provide_model: {k} = {v}")
+    #     exec(f"{k} = {v}")
+
     torch.set_num_threads(args.threads)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -205,13 +213,40 @@ def provide_model(args):
 def tokens_encoded_from(inf):
     enc = tiktoken.get_encoding("gpt2")
     # Without reading the entire file before tokenizing, we cannot
-    # trust the tokenization at the margins of each buffer of text
-    # we tokenize.
+    # trust the tokenization at the margins of each buffer of text we
+    # tokenize.
+    #
     # FIXME: for now we trust that there will be line breaks often
-    # enough, and that a line break is a guarantee of token break.
+    # enough, and that a line break is a reasonable place to cause a
+    # token break.
     for line in inf:
         for tok in enc.encode(line):
             yield tok
+
+
+from torch.nn import functional as F
+class PDFPredictor:
+    def __init__(self, model, ctx, temperature=1.0):
+        self.model = model
+        self.ctx = ctx
+        self.temperature = temperature
+
+    def __call__(self, idx):
+        with torch.no_grad():
+            with self.ctx:
+                # if the sequence context is growing too long we must crop it at block_size
+                idx_cond = (
+                    idx
+                    if idx.size(1) <= self.model.config.block_size
+                    else idx[:, -self.model.config.block_size :]
+                )
+                # forward the model to get the logits for the index in the sequence
+                logits, _ = self.model(idx_cond)
+                # pluck the logits at the final step and scale by desired temperature
+                logits = logits[:, -1, :] / self.temperature
+                # apply softmax to convert logits to (normalized) probabilities
+                probabilities = F.softmax(logits, dim=-1)[-1]
+        return probabilities.cpu()
 
 
 def main(argv):
@@ -247,8 +282,12 @@ def main(argv):
     parser.add_argument(
         "--threads",
         type=int,
-        default=4,
+        # default=4,
+        default=psutil.cpu_count(logical=False),
         help="number of threads to use if device is cpu",
+    )
+    parser.add_argument(
+        "-m", "--model", type=str, default="internal", help="model to use for prediction",
     )
     parser.add_argument(
         "-T", "--temperature", type=float, default=1.0, help="model's logits scaling"
@@ -302,10 +341,6 @@ def main(argv):
             logging.warning(s)
             sys.stderr.write(s)
 
-    do_to_files(inf, outf, args)
-
-# Temporary structure during refactoring
-def do_to_files(inf, outf, args):
     device = args.device
     temperature = args.temperature
 
@@ -417,7 +452,7 @@ def do_to_files(inf, outf, args):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    model, dtype, x = provide_model(args)
+    model, dtype, idx = provide_model(args)
     ptdtype = {
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
@@ -429,10 +464,14 @@ def do_to_files(inf, outf, args):
         else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
     )
 
-    # Common to both compression and decompression, we operate the model in predicition mode
-    with torch.no_grad():
-        with ctx:
-            y = model.compresserate(x, sampler, device=device, temperature=temperature)
+    # Common to both compression and decompression, we operate the model in prediction mode
+    predictor = PDFPredictor(model, ctx, temperature)
+    while not sampler.compress_done and not sampler.decompress_done:
+        probabilities = predictor(idx)
+        actual = sampler.sample(probabilities)
+        idx_next = torch.tensor([[actual]]).to(device)
+        # append sampled index to the running sequence and continue
+        idx = torch.cat((idx, idx_next), dim=1)
 
 
 if __name__ == "__main__":
