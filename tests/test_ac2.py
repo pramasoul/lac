@@ -13,7 +13,7 @@ from typing import Callable, List
 import numpy as np
 
 #import ac2_for_z as ac2
-from ac2_for_z import AC, Predictor, CDFPredictor, ProbPredictor
+from ac2_for_z import AC, Predictor, CDFPredictor, PDFPredictor, ProbPredictor
 from ac2_for_z import region_overlap, group_bits, ungroup_bits
 
 # Configure logging
@@ -230,14 +230,17 @@ def test_make_pdf_digit_oracle():
     assert pdfun(100) == [0.1] * 11
 
 
-class OraclePredictor(ProbPredictor):
-    def __init__(self, digit_str):
-        super().__init__(11)
+class OraclePredictor(PDFPredictor):
+    def __init__(self, digit_str, precision=16):
+        logging.debug(f"OraclePredictor(...,{precision=})")
+        assert 1 < precision < 64 #uint64 limit
+        super().__init__(None, precision)
         self.digit_str = digit_str
         self.digits = [int(c) for c in digit_str]
         self.i = 0
-        #self.pdfun = make_pdf_digit_oracle(self.digit_str)
-
+        self.pdfun = make_pdf_digit_oracle(self.digit_str)
+        self.set_cdf_from_pdf(self.pdfun(0))
+        
     def prob(self,symbol):
         # if self.i < len(self.digits) and symbol == self.digits[self.i]:
         #     rv = 1000
@@ -254,16 +257,17 @@ class OraclePredictor(ProbPredictor):
 
     def accept(self,symbol):
         self.i += 1
-        super().accept(symbol)
+        #super().accept(symbol)
+        self.set_cdf_from_pdf(self.pdfun(self.i))
 
     def copy(self):
-        r = type(self)(self.digit_str)
+        r = type(self)(self.digit_str,self.precision)
         r.i = self.i
         return r
 
 def AC_decimal_oracle_test(digit_str, precision=16, bpd=1):
     logging.debug(f"AC_decimal_oracle_test({len(digit_str)=}, {precision=})")
-    predictor = OraclePredictor(digit_str)
+    predictor = OraclePredictor(digit_str, precision)
     a = AC(predictor, precision)
     enc = a.to_bin
     dec = a.from_bin
@@ -280,15 +284,16 @@ def test_AC_decimal_oracle(long_pi):
     AC_decimal_oracle_test(long_pi[:20], 16)
     for prec in range(16, 5, -1): # val_to_symbol range assertion fail at precision=5
         AC_decimal_oracle_test(long_pi[:20], prec)
-    for prec in range(16, 100): # I assume python bigint is coming into play here.
-        # We'll have to revisit once it's numpy'd
+    for prec in range(16, 64): # //I assume python bigint is coming into play here.
+        # //We'll have to revisit once it's numpy'd
+        # did this
         AC_decimal_oracle_test(long_pi[:20], prec)
 
 
 @pytest.mark.slow
 def test_AC_decimal_oracle_long(long_pi):
-    for prec in range(6, 70): # I assume python bigint is coming into play here.
-        # We'll have to revisit once it's numpy'd
+    for prec in range(6, 64): # //I assume python bigint is coming into play here.
+        # //We'll have to revisit once it's numpy'd
         AC_decimal_oracle_test(long_pi, 16, 0.27)
 
 
@@ -301,9 +306,9 @@ for all symbols val_to_symbol(x) r[0] <= x < r[1] returns symbol
 
 def test_decimal_oracle(long_pi):
     digit_str = long_pi
-    p = OraclePredictor(digit_str)
     for s in range(11):
-        for denom in (100, 12321, 11): # 10 and lower fails first assert
+        for denom in (100, 12321, 17, 16): # 15 and lower fails first assert
+            p = OraclePredictor(digit_str, denom.bit_length())
             r = p.symbol_to_range(s, denom)
             assert r[1] > r[0]
             assert p.val_to_symbol(r[0], denom) == s
@@ -449,14 +454,18 @@ def test_AC_wide_probabilities_medium(medium_text):
     AC_wide_probabilities_test(medium_text)
 
 @pytest.mark.slow
-def test_AC_wide_probabilities_various_precision(medium_text):
+def test_AC_wide_probabilities_various_precision_downward(medium_text):
     text = medium_text
     for prec in range(16, 7, -1): # val_to_symbol range assertion fail at precision=5
         AC_wide_probabilities_test(text, prec)
+
+@pytest.mark.slow
+def test_AC_wide_probabilities_various_precision_upward(medium_text):
+    text = medium_text
     for prec in range(16, 66): # I assume python bigint is coming into play here.
         # We'll have to revisit once it's numpy'd
         AC_wide_probabilities_test(text, prec)
-        
+
 def test_AC_assert_need_enough_precision(medium_text):
     text = medium_text
     with pytest.raises(AssertionError) as xinfo:

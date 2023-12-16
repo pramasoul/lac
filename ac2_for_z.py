@@ -64,7 +64,7 @@ __author__ = "Paul Soulanille <paul@soulanille.net>"
 # Hacked on by TAS
 
 import bisect
-
+import numpy as np
 
 def region_overlap(a, b, c, d):
     # [a,b] with [c,d]
@@ -141,7 +141,63 @@ class CDFPredictor(Predictor):
         h = -(-(hd * denom) // d)
         return (l, h)
 
+class PDFPredictor(Predictor):
+    # uses numpy
+    """subclasses should implement accept(self,symbol) by using the set_cdf_from_pdf method or by setting self.dist directly
+    """
+    def __init__(self, dist, precision=48):
+        """A predictor that works from a fixed distribution provided as a bisect-able thing"""
+        self.dist = dist
+        self.precision = precision
 
+    def set_cdf_from_pdf(self,pdf):
+        self.dist = self.cdf_from_pdf(pdf)
+
+    def cdf_from_pdf(self, pdf):
+        pdf = np.array(pdf, dtype=np.float64)
+        bias = self.get_lop_bias(pdf)
+        assert bias >= 0,f"too small precision, needs at least ceil(log2(num_tokens={len(pdf)}))={len(pdf).bit_length()}"
+        pdf += bias
+        #pdf *= self.region.one / np.sum(pdf)
+        pdf *= (1<<self.precision) / np.sum(pdf)
+        cdf = np.cumsum(pdf).astype(np.uint64)
+        return cdf
+
+    def get_lop_bias(self, pdf):
+        # want min((pdf+bias)/sum(pdf+bias)) >= 2 ulp
+        # (min(pdf)+bias) / (sum(pdf) + len(pdf)*bias) >= 2 ulp
+        # looser bound:
+        #  bias / (sum(pdf) + len(pdf)*bias) >= 2 ulp
+        #  (sum(pdf) + len(pdf)*bias) / bias <= 1 / (2 ulp)
+        #  sum(pdf) / bias + len(pdf) <= 1 / (2 ulp)
+        #  sum(pdf) / bias <= 1 / (2 ulp) - len(pdf)
+        #  bias >= sum(pdf) / (1 / (2 ulp) - len(pdf))
+        return sum(pdf) / ((1<<self.precision) / 2 - len(pdf))
+
+
+    def val_to_symbol(self, v, denom):
+        assert 0 <= v < denom, f"val_to_symbol({v=}, {denom=})"
+        assert denom >= (1<<self.precision>>1), f"{denom=} too small to ensure no catastrophic loss of {self.precision=}"
+        v = (v<<self.precision)//denom
+        return bisect.bisect_right(self.dist, v)#, key=lambda v:-((-int(v)*denom)>>self.precision))
+
+
+    def symbol_to_range(self, s, denom):
+        if s >= len(self.dist) or s < 0:
+            raise AssertionError("unknown symbol", s)
+        assert denom >= (1<<self.precision>>1), f"{denom=} too small to ensure no catastrophic loss of {self.precision=}"
+        hd = int(self.dist[s])
+        ld = int(self.dist[s - 1]) if s > 0 else 0
+        d = int(self.dist[-1])
+        # min l such that (l*d)//denom >= ld
+        # ld * denom
+        l = -(-(ld * denom) >> self.precision)
+        # min h such that h*d//denom >= hd
+        h = -(-(hd * denom) >> self.precision)
+        return (l, h)
+    def copy(self):
+        return type(self)(self.dist,self.precision)
+    
 class ProbPredictor(CDFPredictor):
     """A Predictor that can handle changing probability distributions"""
     def __init__(self, n):
