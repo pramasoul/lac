@@ -22,8 +22,10 @@ import _compression
 # from _bz2 import BZ2Decompressor as LacDecompressor
 # from fake_compressor import FakeCompressor as LacCompressor
 # from fake_compressor import FakeDecompressor as LacDecompressor
-from tok_compressor import TokCompressor as LacCompressor
-from tok_compressor import TokDecompressor as LacDecompressor
+# from tok_compressor import TokCompressor as LacCompressor
+# from tok_compressor import TokDecompressor as LacDecompressor
+from atok_compressor import ACTokCompressor as LacCompressor
+from atok_compressor import ACTokDecompressor as LacDecompressor
 
 _MODE_CLOSED   = 0
 _MODE_READ     = 1
