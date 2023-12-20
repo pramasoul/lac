@@ -12,7 +12,7 @@ from typing import Callable, List
 
 import numpy as np
 
-#import ac2_for_z as ac2
+# import ac2_for_z as ac2
 from ac2_for_z import AC, Predictor, CDFPredictor, PDFPredictor, ProbPredictor
 from ac2_for_z import region_overlap, group_bits, ungroup_bits
 
@@ -144,26 +144,28 @@ earnestness, so valuable did he consider my services."""
 
 def test_region_overlap():
     # [a,b] with [c,d]
-    assert region_overlap(0,0,0,0) == 1
+    assert region_overlap(0, 0, 0, 0) == 1
     assert region_overlap(123, 124, 124, 999) == 1
     assert region_overlap(0, 1, 2, 3) == 0
-    big = (1<<63) - 1
+    big = (1 << 63) - 1
     assert region_overlap(big, big, big, big) == 1
-    assert region_overlap(big-3, big-2, big-1, big) == 0
+    assert region_overlap(big - 3, big - 2, big - 1, big) == 0
     assert region_overlap(0, -1, -2, -3) == 0
-    assert region_overlap(0, big, 0, big) == big+1
+    assert region_overlap(0, big, 0, big) == big + 1
     assert region_overlap(1, 0, 0, 0) == 0
     assert region_overlap(1, 0, -1, 0) == 0
     assert region_overlap(0, 1, -1, 0) == 1
 
-@pytest.mark.skip(reason="less important")
-def test_group_bits():
-    pass
+
+# @pytest.mark.skip(reason="less important")
+# def test_group_bits():
+#     pass
 
 
 @pytest.fixture
 def ac() -> AC:
     return AC()
+
 
 def test_create(ac: AC):
     assert type(ac) == AC
@@ -174,8 +176,8 @@ def test_predictor():
     assert p.val_to_symbol(0, 3) == 0
     assert p.val_to_symbol(1, 3) == 1
     assert p.val_to_symbol(2, 3) == 2
-    assert p.val_to_symbol(3, 3) == 3 # out-of-domain
-    assert p.val_to_symbol(4, 3) == 4 # out-of-domain
+    assert p.val_to_symbol(3, 3) == 3  # out-of-domain
+    assert p.val_to_symbol(4, 3) == 4  # out-of-domain
     assert p.val_to_symbol(0, 9) == 0
     assert p.val_to_symbol(1, 9) == 0
     assert p.val_to_symbol(1, 9) == 0
@@ -184,29 +186,28 @@ def test_predictor():
     assert p.val_to_symbol(3, 4) == 2
 
 
-
-
 def test_AC_ternary_1():
     a = AC(Predictor(3), 16)
     enc = a.to_bin
     dec = a.from_bin
     in_data = [0, 1, 2, 1, 0]
     out_bits = list(enc.bits(in_data))
-    assert out_bits == [0,0,1,1,0,0,1,1,0]
+    assert out_bits == [0, 0, 1, 1, 0, 0, 1, 1, 0]
     recovered = list(dec.run(out_bits))
-    assert recovered[:len(in_data)] == in_data
+    assert recovered[: len(in_data)] == in_data
+
 
 def test_AC_binary_with_stop_1():
-    predictor = CDFPredictor([49,98,100])
+    predictor = CDFPredictor([49, 98, 100])
     a = AC(predictor, 16)
     enc = a.to_bin
     dec = a.from_bin
-    #in_data = [0, 1, 2, 1, 0]
-    in_data = [1,1,1,1,2]
+    # in_data = [0, 1, 2, 1, 0]
+    in_data = [1, 1, 1, 1, 2]
     out_bits = list(enc.bits(in_data))
     assert out_bits == [1, 1, 1, 1, 0, 1, 1, 0, 0, 1]
     recovered = list(dec.run(out_bits))
-    assert recovered[:len(in_data)] == in_data
+    assert recovered[: len(in_data)] == in_data
 
 
 def make_pdf_digit_oracle(s: str, lift=0.01) -> Callable[[int], List[int]]:
@@ -219,6 +220,7 @@ def make_pdf_digit_oracle(s: str, lift=0.01) -> Callable[[int], List[int]]:
         return v
 
     return pdfun
+
 
 def test_make_pdf_digit_oracle():
     digit_str = "314159265358979323846"
@@ -233,15 +235,15 @@ def test_make_pdf_digit_oracle():
 class OraclePredictor(PDFPredictor):
     def __init__(self, digit_str, precision=16):
         logging.debug(f"OraclePredictor(...,{precision=})")
-        assert 1 < precision < 64 #uint64 limit
+        assert 1 < precision < 64  # uint64 limit
         super().__init__(None, precision)
         self.digit_str = digit_str
         self.digits = [int(c) for c in digit_str]
         self.i = 0
         self.pdfun = make_pdf_digit_oracle(self.digit_str)
         self.set_cdf_from_pdf(self.pdfun(0))
-        
-    def prob(self,symbol):
+
+    def prob(self, symbol):
         # if self.i < len(self.digits) and symbol == self.digits[self.i]:
         #     rv = 1000
         # else:
@@ -251,19 +253,20 @@ class OraclePredictor(PDFPredictor):
         else:
             rv = 100
         if symbol == 10:
-            #rv = 1100
+            # rv = 1100
             rv = 100
         return rv
 
-    def accept(self,symbol):
+    def accept(self, symbol):
         self.i += 1
-        #super().accept(symbol)
+        # super().accept(symbol)
         self.set_cdf_from_pdf(self.pdfun(self.i))
 
     def copy(self):
-        r = type(self)(self.digit_str,self.precision)
+        r = type(self)(self.digit_str, self.precision)
         r.i = self.i
         return r
+
 
 def AC_decimal_oracle_test(digit_str, precision=16, bpd=1):
     logging.debug(f"AC_decimal_oracle_test({len(digit_str)=}, {precision=})")
@@ -271,20 +274,20 @@ def AC_decimal_oracle_test(digit_str, precision=16, bpd=1):
     a = AC(predictor, precision)
     enc = a.to_bin
     dec = a.from_bin
-    in_data = [int(c) for c in digit_str] + [10] # Stop
+    in_data = [int(c) for c in digit_str] + [10]  # Stop
     out_bits = list(enc.bits(in_data))
     recovered = list(dec.run(out_bits))
-    assert recovered[:len(in_data)] == in_data
-    r = ''.join(str(v) for v in recovered[:recovered.index(10)])
+    assert recovered[: len(in_data)] == in_data
+    r = "".join(str(v) for v in recovered[: recovered.index(10)])
     assert r == digit_str
     assert len(out_bits) <= len(digit_str) * bpd
 
 
 def test_AC_decimal_oracle(long_pi):
     AC_decimal_oracle_test(long_pi[:20], 16)
-    for prec in range(16, 5, -1): # val_to_symbol range assertion fail at precision=5
+    for prec in range(16, 5, -1):  # val_to_symbol range assertion fail at precision=5
         AC_decimal_oracle_test(long_pi[:20], prec)
-    for prec in range(16, 64): # //I assume python bigint is coming into play here.
+    for prec in range(16, 64):  # //I assume python bigint is coming into play here.
         # //We'll have to revisit once it's numpy'd
         # did this
         AC_decimal_oracle_test(long_pi[:20], prec)
@@ -292,7 +295,7 @@ def test_AC_decimal_oracle(long_pi):
 
 @pytest.mark.slow
 def test_AC_decimal_oracle_long(long_pi):
-    for prec in range(6, 64): # //I assume python bigint is coming into play here.
+    for prec in range(6, 64):  # //I assume python bigint is coming into play here.
         # //We'll have to revisit once it's numpy'd
         AC_decimal_oracle_test(long_pi, 16, 0.27)
 
@@ -304,16 +307,16 @@ for all symbols val_to_symbol(x) r[0] <= x < r[1] returns symbol
 2^^(precision-1) <= denom <=? 2^^precision 
 """
 
+
 def test_decimal_oracle(long_pi):
     digit_str = long_pi
     for s in range(11):
-        for denom in (100, 12321, 17, 16): # 15 and lower fails first assert
+        for denom in (100, 12321, 17, 16):  # 15 and lower fails first assert
             p = OraclePredictor(digit_str, denom.bit_length())
             r = p.symbol_to_range(s, denom)
             assert r[1] > r[0]
             assert p.val_to_symbol(r[0], denom) == s
-            assert p.val_to_symbol(r[1]-1, denom) == s
-
+            assert p.val_to_symbol(r[1] - 1, denom) == s
 
 
 # Can it handle many symbols?
@@ -324,17 +327,17 @@ def test_AC_many_symbols():
         fib.append(fib[-1] + fib[-2])
     for n_symbols in fib:
         p = Predictor(n_symbols)
-        for denom in (n_symbols, n_symbols*2 - 1):
+        for denom in (n_symbols, n_symbols * 2 - 1):
             for s in range(n_symbols):
                 r = p.symbol_to_range(s, denom)
                 assert r[1] > r[0]
                 assert p.val_to_symbol(r[0], denom) == s
-                assert p.val_to_symbol(r[1]-1, denom) == s
-            
+                assert p.val_to_symbol(r[1] - 1, denom) == s
+
 
 # Widely-varing probabilities?
 class ShuffledFibPDF:
-    def __init__(self, not_to_exceed=1<<20, seed=42):
+    def __init__(self, not_to_exceed=1 << 20, seed=42):
         self.seed = seed
         fib = [1, 1]
         while (nf := fib[-1] + fib[-2]) < not_to_exceed:
@@ -349,14 +352,14 @@ class ShuffledFibPDF:
 
     def __call__(self):
         self.rng.shuffle(self.fib)
-        return self.fib[:]      # Return a copy
+        return self.fib[:]  # Return a copy
 
 
 def test_ShuffledFibPDF():
     f1 = ShuffledFibPDF()
-    assert all(v <= 1<<20 for v in f1())
-    f2 = ShuffledFibPDF(1<<60)
-    assert all(v <= 1<<60 for v in f2())
+    assert all(v <= 1 << 20 for v in f1())
+    f2 = ShuffledFibPDF(1 << 60)
+    assert all(v <= 1 << 60 for v in f2())
     assert all(f1v in f2() for f1v in f1())
     assert f2() != f2()
     f1.reset()
@@ -385,12 +388,13 @@ class CodeBook:
     def decode(self, v):
         return "".join(self.symbols[i] for i in v)
 
+
 def test_Codebook(long_pi, long_text):
     b = CodeBook("0123456789")
     e = b.encode(long_pi)
     assert b.decode(e) == long_pi
     assert b.decode(e[:-1]) != long_pi
-    b = CodeBook(''.join(c for c in set(long_text)))
+    b = CodeBook("".join(c for c in set(long_text)))
     e = b.encode(long_text)
     assert b.decode(e) == long_text
 
@@ -404,21 +408,21 @@ class ShufflingPredictor(ProbPredictor):
         self.reset()
 
     def reset(self):
-        #self.i = 0
+        # self.i = 0
         self.probs = self.orig_probs[:]
         self.rng.seed(self.seed)
 
     def prob(self, symbol):
         return self.probs[symbol]
 
-    def accept(self,symbol):
+    def accept(self, symbol):
         self.rng.shuffle(self.probs)
-        #self.i += 1
+        # self.i += 1
         super().accept(symbol)
 
     def copy(self):
         r = type(self)(self.probs, self.seed)
-        #r.i = self.i
+        # r.i = self.i
         return r
 
 
@@ -428,14 +432,14 @@ def test_ShufflingPredictor():
 
 
 def AC_wide_probabilities_test(text, precision=16):
-    cb = CodeBook(''.join(c for c in set(text)))
+    cb = CodeBook("".join(c for c in set(text)))
     in_data = cb.encode(text)
     vmax = max(cb.encode(text))
     sfp = ShuffledFibPDF()
     probs = sfp()
     while len(probs) <= vmax:
-        probs.extend(list(a+b for a, b in zip(sfp(), sfp())))
-    probs = probs[:vmax+1]
+        probs.extend(list(a + b for a, b in zip(sfp(), sfp())))
+    probs = probs[: vmax + 1]
     logging.debug(f"AC_wide_probabilties_test {vmax=} {probs=}")
     predictor = ShufflingPredictor(probs)
     a = AC(predictor, precision)
@@ -445,26 +449,29 @@ def AC_wide_probabilities_test(text, precision=16):
     logging.debug(f"AC_wide_probabilties_test {len(text)=} {len(out_bits)=}")
     recovered = list(dec.run(out_bits))
     out_text = cb.decode(recovered)
-    assert out_text[:len(in_data)] == text
-    #assert recovered[:len(in_data)] == text
-    #assert len(out_bits) <= len(digit_str) * bpd
+    assert out_text[: len(in_data)] == text
+    # assert recovered[:len(in_data)] == text
+    # assert len(out_bits) <= len(digit_str) * bpd
 
 
 def test_AC_wide_probabilities_medium(medium_text):
     AC_wide_probabilities_test(medium_text)
 
+
 @pytest.mark.slow
 def test_AC_wide_probabilities_various_precision_downward(medium_text):
     text = medium_text
-    for prec in range(16, 7, -1): # val_to_symbol range assertion fail at precision=5
+    for prec in range(16, 7, -1):  # val_to_symbol range assertion fail at precision=5
         AC_wide_probabilities_test(text, prec)
+
 
 @pytest.mark.slow
 def test_AC_wide_probabilities_various_precision_upward(medium_text):
     text = medium_text
-    for prec in range(16, 66): # I assume python bigint is coming into play here.
+    for prec in range(16, 66):  # I assume python bigint is coming into play here.
         # We'll have to revisit once it's numpy'd
         AC_wide_probabilities_test(text, prec)
+
 
 def test_AC_assert_need_enough_precision(medium_text):
     text = medium_text
@@ -474,17 +481,16 @@ def test_AC_assert_need_enough_precision(medium_text):
     AC_wide_probabilities_test(text, 7)
 
 
-
 @pytest.mark.slow
 def test_AC_wide_probabilities_long(long_text):
     AC_wide_probabilities_test(long_text)
-
 
 
 def shufseq(n=30):
     l = list(range(n))
     random.shuffle(l)
     return l
+
 
 class ShufSeq:
     def __init__(self, n=30):
@@ -502,5 +508,44 @@ def test_shufseq():
     s2 = os()
     assert s1 != s2
     assert os() != os()
-    
 
+
+def test_tokens_to_stop_with_bits_consumed(medium_text):
+    ttswbc_test("Hi")
+    ttswbc_test(medium_text)
+
+
+from atok_compressor import (
+    tokens_to_stop_with_bits_consumed,
+    bits_to_bytes,
+    bytes_to_bits,
+)
+
+
+def ttswbc_test(text):
+    cb = CodeBook("".join(c for c in set(text)))
+    in_data = cb.encode(text)
+    vmax = max(cb.encode(text))
+    stop = vmax + 1
+    in_data.append(stop)
+    sfp = ShuffledFibPDF()
+    probs = sfp()
+    while len(probs) <= stop:
+        probs.extend(list(a + b for a, b in zip(sfp(), sfp())))
+    probs = probs[: stop + 1]  # Room for a stop token at the top
+    logging.debug(f"AC_wide_probabilties_test {stop=} {len(probs)=} {probs=}")
+    predictor = ShufflingPredictor(probs)
+    a = AC(predictor)
+    enc = a.to_bin
+    dec = a.from_bin
+    out_bits = list(enc.bits(in_data))
+    logging.debug(f"AC_wide_probabilties_test {len(text)=} {len(out_bits)=}")
+    out_bytes, tail = bits_to_bytes(out_bits + [0] * 8)
+    # recovered = list(dec.run(out_bits))
+    # recovered = list(dec.run(bytes_to_bits(out_bytes)))
+    recovered, bits_eaten = tokens_to_stop_with_bits_consumed(dec, out_bytes, stop)
+    assert recovered[-1] == stop
+    out_text = cb.decode(recovered[:-1])
+    assert out_text[: len(in_data)] == text
+    # assert recovered[:len(in_data)] == text
+    # assert len(out_bits) <= len(digit_str) * bpd

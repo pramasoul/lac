@@ -66,6 +66,7 @@ __author__ = "Paul Soulanille <paul@soulanille.net>"
 import bisect
 import numpy as np
 
+
 def region_overlap(a, b, c, d):
     # [a,b] with [c,d]
     return max(0, min(d, b) - max(a, c) + 1)
@@ -86,7 +87,7 @@ class Predictor:
 
     def accept(self, symbol):
         # update internal model
-        pass                    # nothing to do with this stationary example distribution
+        pass  # nothing to do with this stationary example distribution
 
     def copy(self):
         return self
@@ -109,8 +110,10 @@ class CDFPredictor(Predictor):
         )
 
     def fudged_dist(self, denom):
-        assert len(self.dist) <= denom, f"Can't represent {len(self.dist)} symbols with {denom=}.\n" + \
-            f"Suggested fix: use a higher precision in constructing AC, at least {len(self.dist).bit_length()+1}"
+        assert len(self.dist) <= denom, (
+            f"Can't represent {len(self.dist)} symbols with {denom=}.\n"
+            + f"Suggested fix: use a higher precision in constructing AC, at least {len(self.dist).bit_length()+1}"
+        )
         if self.dist[-1] <= denom * self.minp:
             return self.dist
         res = []
@@ -141,25 +144,28 @@ class CDFPredictor(Predictor):
         h = -(-(hd * denom) // d)
         return (l, h)
 
+
 class PDFPredictor(Predictor):
     # uses numpy
-    """subclasses should implement accept(self,symbol) by using the set_cdf_from_pdf method or by setting self.dist directly
-    """
+    """subclasses should implement accept(self,symbol) by using the set_cdf_from_pdf method or by setting self.dist directly"""
+
     def __init__(self, dist, precision=48):
         """A predictor that works from a fixed distribution provided as a bisect-able thing"""
         self.dist = dist
         self.precision = precision
 
-    def set_cdf_from_pdf(self,pdf):
+    def set_cdf_from_pdf(self, pdf):
         self.dist = self.cdf_from_pdf(pdf)
 
     def cdf_from_pdf(self, pdf):
         pdf = np.array(pdf, dtype=np.float64)
         bias = self.get_lop_bias(pdf)
-        assert bias >= 0,f"too small precision, needs at least ceil(log2(num_tokens={len(pdf)}))={len(pdf).bit_length()}"
+        assert (
+            bias >= 0
+        ), f"too small precision, needs at least ceil(log2(num_tokens={len(pdf)}))={len(pdf).bit_length()}"
         pdf += bias
-        #pdf *= self.region.one / np.sum(pdf)
-        pdf *= (1<<self.precision) / np.sum(pdf)
+        # pdf *= self.region.one / np.sum(pdf)
+        pdf *= (1 << self.precision) / np.sum(pdf)
         cdf = np.cumsum(pdf).astype(np.uint64)
         return cdf
 
@@ -172,20 +178,24 @@ class PDFPredictor(Predictor):
         #  sum(pdf) / bias + len(pdf) <= 1 / (2 ulp)
         #  sum(pdf) / bias <= 1 / (2 ulp) - len(pdf)
         #  bias >= sum(pdf) / (1 / (2 ulp) - len(pdf))
-        return sum(pdf) / ((1<<self.precision) / 2 - len(pdf))
-
+        return sum(pdf) / ((1 << self.precision) / 2 - len(pdf))
 
     def val_to_symbol(self, v, denom):
         assert 0 <= v < denom, f"val_to_symbol({v=}, {denom=})"
-        assert denom >= (1<<self.precision>>1), f"{denom=} too small to ensure no catastrophic loss of {self.precision=}"
-        v = (v<<self.precision)//denom
-        return bisect.bisect_right(self.dist, v)#, key=lambda v:-((-int(v)*denom)>>self.precision))
-
+        assert denom >= (
+            1 << self.precision >> 1
+        ), f"{denom=} too small to ensure no catastrophic loss of {self.precision=}"
+        v = (v << self.precision) // denom
+        return bisect.bisect_right(
+            self.dist, v
+        )  # , key=lambda v:-((-int(v)*denom)>>self.precision))
 
     def symbol_to_range(self, s, denom):
         if s >= len(self.dist) or s < 0:
             raise AssertionError("unknown symbol", s)
-        assert denom >= (1<<self.precision>>1), f"{denom=} too small to ensure no catastrophic loss of {self.precision=}"
+        assert denom >= (
+            1 << self.precision >> 1
+        ), f"{denom=} too small to ensure no catastrophic loss of {self.precision=}"
         hd = int(self.dist[s])
         ld = int(self.dist[s - 1]) if s > 0 else 0
         d = int(self.dist[-1])
@@ -195,11 +205,14 @@ class PDFPredictor(Predictor):
         # min h such that h*d//denom >= hd
         h = -(-(hd * denom) >> self.precision)
         return (l, h)
+
     def copy(self):
-        return type(self)(self.dist,self.precision)
-    
+        return type(self)(self.dist, self.precision)
+
+
 class ProbPredictor(CDFPredictor):
     """A Predictor that can handle changing probability distributions"""
+
     def __init__(self, n):
         self.n = n
         self.dcache: list | None = None
@@ -224,11 +237,11 @@ class ProbPredictor(CDFPredictor):
         return self.dcache
 
     @property
-    def minp(self):             # minimum non-zero
+    def minp(self):  # minimum non-zero
         return min(filter(lambda v: v > 0, self.pdf_iter))
 
     def accept(self, symbol):
-        self.dcache = None      # flush for later recalc - extend
+        self.dcache = None  # flush for later recalc - extend
 
     def copy(self):
         return self
@@ -239,9 +252,10 @@ ternary = Predictor(3)
 
 class AC:
     """ """
+
     def __init__(self, predictor=ternary, prec=16):
-        """ A factory for A_to_bin and A_from_bin
- prec is the probability register precision in bits """
+        """A factory for A_to_bin and A_from_bin
+        prec is the probability register precision in bits"""
         self.predictor = predictor
         self.precision = prec
 
@@ -260,17 +274,16 @@ class AC:
 class A_to_bin:
     """Alphabet to binary
     Callable with a symbol (an int), returning a generator of bits
-    bits are improper; they are in [0,3]
-"""
+    bits are improper; they are in [0,3]"""
 
     def __init__(self, predictor=ternary, prec=16):
         self.predictor = predictor
         self.denom = 1 << prec  # fixed-point one (aka 1.0)
-        self.decision = 1 << (prec - 1) # decision boundary for the bits
-        self.l = 0                      # Low side of the interval (zero-extended)
-        self.h = self.denom - 1         # High side (implicitly one-extended)
-        self.emitted_bits = 0           # Counter of bits emitted by emit_bit
-        self.debug_log = None           # Optional list for logging stuff into
+        self.decision = 1 << (prec - 1)  # decision boundary for the bits
+        self.l = 0  # Low side of the interval (zero-extended)
+        self.h = self.denom - 1  # High side (implicitly one-extended)
+        self.emitted_bits = 0  # Counter of bits emitted by emit_bit
+        self.debug_log = None  # Optional list for logging stuff into
 
     def __repr__(self):
         sl = bin(self.l + (self.denom << 1))[3:]
@@ -285,9 +298,13 @@ class A_to_bin:
         r = self.predictor.symbol_to_range(symbol, w)
         assert r[1] > r[0], f"{self}.receive_symbol({symbol}) {r=}"
         was_l, was_h = self.l, self.h
-        self.h = self.l + r[1] - 1 # Remember ranges are [l, h) aka open ball on the high side
+        self.h = (
+            self.l + r[1] - 1
+        )  # Remember ranges are [l, h) aka open ball on the high side
         self.l += r[0]
-        assert self.l <= self.h, f"{self}.receive_symbol({symbol}) self.l {was_l}->{self.l}, self.h {was_h}->{self.h}"
+        assert (
+            self.l <= self.h
+        ), f"{self}.receive_symbol({symbol}) self.l {was_l}->{self.l}, self.h {was_h}->{self.h}"
         self.predictor.accept(symbol)
 
     def decide_bit(self):
@@ -408,7 +425,7 @@ class A_from_bin:
         if ls == hs:
             return self.emit_symbol(ls)
 
-    def emit_symbol(self, s, flushing = False):
+    def emit_symbol(self, s, flushing=False):
         r = self.predictor.symbol_to_range(s, self.h - self.l + 1)
         # assert r[1]-r[0]
         if region_overlap(self.l + r[0], self.l + r[1] - 1, self.lb, self.hb) == 0:
@@ -420,7 +437,9 @@ class A_from_bin:
                 (self.l + r[0], self.l + r[1] - 1),
             )
         #
-        assert flushing or self.l+r[0] <= self.lb <= self.hb <= self.l+r[1]-1, "region escaped window"
+        assert (
+            flushing or self.l + r[0] <= self.lb <= self.hb <= self.l + r[1] - 1
+        ), "region escaped window"
         self.h = self.l + r[1] - 1
         self.l += r[0]
         self.predictor.accept(s)
@@ -458,9 +477,9 @@ class A_from_bin:
         while not (self.lb <= self.l and self.h <= self.hb):
             w = self.h - self.l + 1
             ls = self.predictor.val_to_symbol(max(0, self.lb - self.l), w)
-            hs = self.predictor.val_to_symbol(min(w-1, self.hb - self.l), w)
+            hs = self.predictor.val_to_symbol(min(w - 1, self.hb - self.l), w)
             s = max((s for s in range(ls, hs + 1)), key=k)
-            yield self.emit_symbol(s,True)
+            yield self.emit_symbol(s, True)
         self.l = 0
         self.h = self.denom - 1
         self.lb = 0
