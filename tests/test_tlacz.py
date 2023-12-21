@@ -701,7 +701,7 @@ class Test_LacFile(BaseTest):
         else:
             pytest.fail("1/0 didn't raise an exception")
 
-    @pytest.mark.skip(reason="Too many 1's and we stack overflow (PDLOV)")
+    @pytest.mark.skip(reason="Too many 1's and we stack overflow in tiktoken.encode")
     def test_threading(self):
         # Issue #7205: Using a LacFile from several threads shouldn't deadlock.
         data = b"1" * 2**20
@@ -742,7 +742,7 @@ class Test_LacFile(BaseTest):
         with LacFile(self.filename) as bz2f:
             assert bz2f.read() == data1 + data2
 
-    @pytest.mark.skip(reason="Binary data with our flags in it")
+    @pytest.mark.skip(reason="Binary data that doesn't utf-8 decode")
     def test_open_bytes_filename(self):
         str_filename = self.filename
         try:
@@ -757,7 +757,7 @@ class Test_LacFile(BaseTest):
         with LacFile(str_filename, "rb") as f:
             assert f.read() == self.DATA
 
-    @pytest.mark.skip(reason="Binary data with our flags in it")
+    @pytest.mark.skip(reason="Binary data that doesn't utf-8 decode")
     def test_open_path_like_filename(self):
         filename = pathlib.Path(self.filename)
         with LacFile(filename, "wb") as f:
@@ -765,7 +765,7 @@ class Test_LacFile(BaseTest):
         with LacFile(filename, "rb") as f:
             assert f.read() == self.DATA
 
-    @pytest.mark.skip(reason="Binary data with our flags in it")
+    @pytest.mark.skip(reason="Blows up tiktoken.encode")
     def test_decompress_limited(self):
         """Decompressed data buffering should be limited"""
         bomb = lac.compress(b'\0' * int(2e6), compresslevel=9)
@@ -780,7 +780,7 @@ class Test_LacFile(BaseTest):
 
     # Tests for a LacFile wrapping another file object:
 
-    @pytest.mark.skip(reason="Binary data with our flags in it")
+    #@pytest.mark.skip(reason="Binary data with our flags in it")
     def test_read_bytes_io(self):
         with BytesIO(self.DATA) as bio:
             with LacFile(bio) as bz2f:
