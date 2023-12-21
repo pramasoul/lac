@@ -26,6 +26,9 @@ class TokPredictor(PDFPredictor):
         super().__init__(None, precision)
         self.max_token = max_token
 
+    def restart(self):
+        pass
+
     # UNNECESSARY I think:
     def copy(self):
         return type(self)(self.max_token, self.precision)
@@ -157,7 +160,7 @@ class ACTokDecompressor:
         self.unused_data = b""
         self.token_buffer = []
         self.output_buffer = b""
-        self.b2a = A_from_bin(self.predictor, PRECISION)
+        self._restart_AC()
         self._eos = False
         self.state = "Expecting header"
         r"""States:
@@ -169,6 +172,10 @@ class ACTokDecompressor:
 * Ingesting footer
 * Footer accepted / rejected        
 """
+
+    def _restart_AC(self):
+        self.predictor.restart()
+        self.b2a = A_from_bin(self.predictor, PRECISION)        
 
 
     def __repr__(self):
@@ -243,13 +250,19 @@ class ACTokDecompressor:
 
         if self.state == "Expecting footer":
             check_result = self.check_for_footer_and_process()
+            logging.debug(f"{check_result=}")
             if check_result == "good":
-                self.state == "Footer good"
+                self.state = "Footer good"
             elif check_result == "looking":
                 pass            # Stay in "Expecting footer" state
             else:
                 raise ValueError(f"bad footer: {check_result}")
+            logging.debug(f"ACTokDecompressor.decompress {self=}")
 
+        if self.state == "Footer good":
+            self._restart_AC()
+            self.state = "Expecting header"
+            logging.debug(f"ACTokDecompressor.decompress {self=}")
 
         # Phase 2: Provide output
         # Now provide output, respecting max_length
@@ -259,7 +272,7 @@ class ACTokDecompressor:
         else:
             rv = self.output_buffer[:max_length]
             self.output_buffer = self.output_buffer[max_length:]
-        logging.debug(f"ACTokDecompressor.decompress {self}")
+        logging.debug(f"ACTokDecompressor.decompress {self} {len(rv)=}({rv[:16]}...)")
         return rv
 
 
@@ -274,6 +287,7 @@ class ACTokDecompressor:
 
     def check_for_footer_and_process(self):
         footer_start = self.unused_data.find(_EOS)
+        logging.debug(f"check_for_footer_and_process: {footer_start=}")
         if footer_start > 0:
             logging.warning(f"Expected footer right here, but it's {footer_start} bytes further")
             return f"displaced to start at {footer_start}"
@@ -287,9 +301,6 @@ class ACTokDecompressor:
             self.unused_data = self.unused_data[footer_start + footer_len:]
             self._eos = True    # FIXME?
             return "good"
-
-
-
 
     def __getstate__(self, *args, **kwargs):
         raise TypeError

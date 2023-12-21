@@ -540,7 +540,8 @@ class Test_LacFile(BaseTest):
         self.createTempFile(streams=2)
         with LacFile(self.filename) as bz2f:
             bz2f.seek(-1000, 2)
-            assert bz2f.read() == (self.TEXT * 2)[-1000:]
+            read_result = bz2f.read()
+        assert read_result == (self.TEXT * 2)[-1000:]
 
     def test_seek_post_end(self):
         self.createTempFile()
