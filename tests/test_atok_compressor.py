@@ -124,6 +124,18 @@ def test_bits_to_bytes_to_bits():
         assert b2y(y2b((b))) == (b, [])
 
 
+def test_compress_empty():
+    c = atc.ACTokCompressor()
+    compressed = c.compress("") + c.flush()
+    assert compressed == b"\xfe\xfe\xff\xffThat's all, folks!"
+    
+def test_decompress_empty():
+    compressed = b"\xfe\xfe\xff\xffThat's all, folks!"
+    d = atc.ACTokDecompressor()
+    decompressed = d.decompress(compressed)
+    assert decompressed == b""
+
+
 @pytest.fixture
 def medium_text():
     return r"""A variety of specific techniques for arithmetic coding have
@@ -151,13 +163,13 @@ def compress_decompress_test(text):
     if type(text) is str: text = text.encode("utf8")
     assert text == decompressed
     
-def test_compress_short():
+def test_cd_short():
     compress_decompress_test(b"")
     compress_decompress_test(b"Hi!")
     compress_decompress_test(b"Hi!Hi!")
     compress_decompress_test(b"The quick brown fox, et al.")
 
-def test_compress_short_nl():
+def test_cd_short_nl():
     for c,d in ((tc.TokCompressor(),tc.TokDecompressor()), (atc.ACTokCompressor(),atc.ACTokDecompressor())):
         text = b"\n"
         zbody = c.compress(text)
@@ -165,8 +177,25 @@ def test_compress_short_nl():
         reconstructed = d.decompress(zbody + ztail)
         assert text == reconstructed
 
-def test_compress_brief():
+def test_cd_brief():
     compress_decompress_test(b"The quick brown fox jumped over the lazy dogs.\n")
 
-def test_compress_medium(medium_text):
+def test_cd_medium(medium_text):
     compress_decompress_test(medium_text)
+
+def cd_char_at_a_time_test(text):
+    comp = atc.ACTokCompressor()
+    compressed = b"".join(comp.compress(char) for char in text) + comp.flush()
+    decompressed = atc.ACTokDecompressor().decompress(compressed)
+    if type(text) is str: text = text.encode("utf8")
+    assert text == decompressed
+    decomp = atc.ACTokDecompressor()
+    decompressed = b"".join(decomp.decompress(bytes([b])) for b in compressed)
+    assert text == decompressed
+
+    
+def test_cd_caat(medium_text):
+    cd_char_at_a_time_test("")
+    cd_char_at_a_time_test("Hi!")
+    cd_char_at_a_time_test("The quick brown fox jumped over the lazy dogs.\n")
+    cd_char_at_a_time_test(medium_text)

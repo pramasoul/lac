@@ -1,6 +1,7 @@
 """A tokenizing compressor with arithmetic coding, to assist in validating code structure"""
 
 # The objective is to look like _bz2.BZ2Decompressor
+# https://www.cs.cmu.edu/afs/cs/project/pscico-guyb/realworld/99/code/bzip2-0.9.5c/manual_3.html
 
 import io
 import logging
@@ -15,7 +16,6 @@ from ac2_for_z import PDFPredictor, A_to_bin, A_from_bin
 
 BUFFER_SIZE = io.DEFAULT_BUFFER_SIZE  # Compressed data read chunk size
 _HEADER = b"\xfe\xfe"                 # Beyond token range
-#_EOS = b"\xff\xff"                    # Beyond token range
 _EOS = b"That's all, folks!"    # DEBUG
 PRECISION = 48                        # The arithmetic coder's arithmetic precision to use
 
@@ -105,7 +105,15 @@ class ACTokCompressor:
             eot_ix = None
         logging.debug(f"ACTokCompressor.flush {self=} {toks=} {eot_ix=}")
         self.bits_accumulator.extend(list(self.a2b.bits(toks, stop=True)))
-        rv, self.bits_accumulator = bits_to_bytes(self.bits_accumulator + [0]*7) # FIXME?
+
+        if not self.header_sent:
+            rv = self._header()
+            self.header_sent = True
+        else:
+            rv = b""
+
+        v, self.bits_accumulator = bits_to_bytes(self.bits_accumulator + [0]*7) # FIXME? or ok?
+        rv += v
         logging.debug(f"ACTokCompressor.flush {self=} {rv=} {self.bits_accumulator=}")
         assert all(v == 0 for v in self.bits_accumulator)
         self.bits_accumulator = [] # discard padding
@@ -139,7 +147,7 @@ class ACTokDecompressor:
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
         self.predictor = TokPredictor(self.eot_token)
         self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
-        logging.debug(f"ACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
+        logging.debug(f"ACTokDecompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.dtype = np.dtype('<u2')
         self._restart()
 
@@ -151,13 +159,27 @@ class ACTokDecompressor:
         self.output_buffer = b""
         self.b2a = A_from_bin(self.predictor, PRECISION)
         self._eos = False
+        self.state = "Expecting header"
+        r"""States:
+* Expecting header
+* Ingesting header
+* Header accepted / rejected
+* Expecting data or footer
+* Ingesting data
+* Ingesting footer
+* Footer accepted / rejected        
+"""
+
 
     def __repr__(self):
-        return f"decomp({' H'[self.header_seen]}{' S'[self._eos]}{' F'[self.eof]},{len(self.unused_data)=}({self.unused_data[:4]},{len(self.token_buffer)=}({self.token_buffer[:4]}...{self.token_buffer[-4:]})) -> {len(self.output_buffer)}({self.output_buffer[:4]}...{self.output_buffer[-4:]}),{self.n_bytes_ingested})"
+        #return f"decomp({' H'[self.header_seen]}{' S'[self._eos]}{' F'[self.eof]},{len(self.unused_data)=}({self.unused_data[:4]},{len(self.token_buffer)=}({self.token_buffer[:4]}...{self.token_buffer[-4:]})) -> {len(self.output_buffer)}({self.output_buffer[:4]}...{self.output_buffer[-4:]}),{self.n_bytes_ingested})"
+        return f"decomp({self.state=} {self.needs_input=}, {self._eos=} {self.eof=},{len(self.unused_data)=}({self.unused_data[:4]}),{len(self.token_buffer)=}({self.token_buffer[:4]}...{self.token_buffer[-4:]})) -> {len(self.output_buffer)}({self.output_buffer[:4]}...{self.output_buffer[-4:]}),{self.n_bytes_ingested})"
         
     @property
     def needs_input(self):
-        return len(self.output_buffer) == 0
+        return len(self.output_buffer) == 0 \
+            and self.state not in ("Expecting footer", "Footer good")
+            
 
     @property
     def eof(self):
@@ -167,18 +189,12 @@ class ACTokDecompressor:
         else:
             return False
 
-
     def decompress(self, rawblock, size=None, max_length=None):
+        """ """
+
         logging.debug(
-            f"ACTokDecompressor.decompress({len(rawblock)=}, {size=}) {self.header_seen=} {len(self.unused_data)=} {self.n_bytes_ingested=}"
+            f"ACTokDecompressor.decompress({self=}, {len(rawblock)=}, {size=}, {max_length=})"
         )
-        logging.debug(f"ACTokDecompressor.decompress {self}")
-
-        # If restarting, clear unused data
-        if self.eof:
-            self._restart()
-
-        self.unused_data += rawblock
 
         # FIXME: what is size? how is it to be used?
         if size is not None:
@@ -187,42 +203,55 @@ class ACTokDecompressor:
             else:
                 max_length = size
 
+        # If restarting, clear unused data
+        if self.eof:
+            self._restart()
 
-        if not self._eos:
+        # Two phases:
+        # 1) Ingest and process the rawblock of compressed bytes
+        # 2) Deliver the requested amount of data, or whatever we can
+        # Phase 1 begins here:
 
-            logging.debug(f"ACTokDecompressor.decompress {self}")
-            if not self.header_seen:
-                self.header_seen = self.check_for_header_and_process()
-                if not self.header_seen:
-                    raise OSError("Header expected first")
-            self.n_bytes_ingested += len(rawblock) # FIXME: in the right place here?
-            logging.debug(f"ACTokDecompressor.decompress {self}")
+        self.unused_data += rawblock
+        self.n_bytes_ingested += len(rawblock)
+        
+        # The state machine
+        if self.state == "Expecting header":
+            if self.check_for_header_and_process():
+                self.state = "Expecting data or footer"
+
+        if self.state == "Expecting data or footer":
             new_toks, n_bits = tokens_to_stop_with_bits_consumed(self.b2a, self.unused_data, self.eot_token)
             try:
                 eot_ix = new_toks.index(self.eot_token)
             except ValueError:
                 eot_ix = None
             logging.debug(f"ACTokDecompressor.decompress {self} {eot_ix=}")
-            # HUH? assert n_bits % 8 == 0
-            # FIXME: SUSPECT: dumping unused bits below
             self.unused_data = self.unused_data[(n_bits+7)//8:] # If we used any bits from that last byte we skip
-            if new_toks[-1] == self.eot_token:
+            if new_toks and new_toks[-1] == self.eot_token:
                 logging.debug(f"ACTokDecompressor.decompress hit eot token")
                 assert new_toks.pop() == self.eot_token
-                self._eos = True
-                footer_start, footer_len = self.find_footer()
-                #assert footer_start == 0, f"Expected footer right here, but it's {footer_start} bytes further"
-                if footer_start != 0:
-                    logging.warning(f"Expected footer right here, but it's {footer_start} bytes further")
-                self.unused_data = self.unused_data[footer_start + footer_len:]
+                self.state = "Expecting footer"
             self.token_buffer.extend(new_toks)
             logging.debug(f"ACTokDecompressor.decompress {self=}")
+
             # Now turn tokens into text in output buffer
             decoded_toks = self.tok_enc.decode_bytes(self.token_buffer)
             self.token_buffer = []
             self.output_buffer += decoded_toks
             logging.debug(f"ACTokDecompressor.decompress {self=}, {decoded_toks=}")
 
+        if self.state == "Expecting footer":
+            check_result = self.check_for_footer_and_process()
+            if check_result == "good":
+                self.state == "Footer good"
+            elif check_result == "looking":
+                pass            # Stay in "Expecting footer" state
+            else:
+                raise ValueError(f"bad footer: {check_result}")
+
+
+        # Phase 2: Provide output
         # Now provide output, respecting max_length
         if max_length is None:
             rv = self.output_buffer
@@ -230,28 +259,37 @@ class ACTokDecompressor:
         else:
             rv = self.output_buffer[:max_length]
             self.output_buffer = self.output_buffer[max_length:]
-            
-        logging.debug(
-            f"ACTokDecompressor.decompress {len(rv)=} {self.header_seen=} {len(self.unused_data)=}"
-        )
         logging.debug(f"ACTokDecompressor.decompress {self}")
         return rv
+
 
     def check_for_header_and_process(self):
         if self.unused_data.startswith(_HEADER):
             self.unused_data = self.unused_data[len(_HEADER) :]
             return True
+        elif not self.unused_data.startswith(_HEADER[:len(self.unused_data)]):
+            raise OSError("Header expected first")
         else:
             return False
 
-    def find_footer(self):
-        start = self.unused_data.find(_EOS)
-        if start >= 0:
-            rv = start, len(_EOS)
-        else:
-            rv = start, 0
-        logging.debug(f"ACTokDecompressor.find_footer {rv=}")
-        return rv
+    def check_for_footer_and_process(self):
+        footer_start = self.unused_data.find(_EOS)
+        if footer_start > 0:
+            logging.warning(f"Expected footer right here, but it's {footer_start} bytes further")
+            return f"displaced to start at {footer_start}"
+        if footer_start == -1:
+            if len(self.unused_data) >= len(_EOS):
+                return("not found")
+            else:
+                return "looking"
+        if footer_start == 0:
+            footer_len = len(_EOS)
+            self.unused_data = self.unused_data[footer_start + footer_len:]
+            self._eos = True    # FIXME?
+            return "good"
+
+
+
 
     def __getstate__(self, *args, **kwargs):
         raise TypeError
