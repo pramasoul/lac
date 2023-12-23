@@ -65,7 +65,7 @@ __author__ = "Paul Soulanille <paul@soulanille.net>"
 
 import bisect
 import numpy as np
-
+import logging
 
 def region_overlap(a, b, c, d):
     # [a,b] with [c,d]
@@ -165,8 +165,12 @@ class PDFPredictor(Predictor):
         ), f"too small precision, needs at least ceil(log2(num_tokens={len(pdf)}))={len(pdf).bit_length()}"
         pdf += bias
         # pdf *= self.region.one / np.sum(pdf)
-        pdf *= (1 << self.precision) / np.sum(pdf)
-        cdf = np.cumsum(pdf).astype(np.uint64)
+        pdf /= np.sum(pdf)
+        fcdf = np.cumsum(pdf)
+        #assert fcdf[-1] == 1.0
+        fcdf *= (1<<self.precision) / fcdf[-1]
+        cdf = fcdf.astype(np.uint64)
+        assert cdf[-1] == 1<<self.precision
         return cdf
 
     def get_lop_bias(self, pdf):
@@ -178,7 +182,7 @@ class PDFPredictor(Predictor):
         #  sum(pdf) / bias + len(pdf) <= 1 / (2 ulp)
         #  sum(pdf) / bias <= 1 / (2 ulp) - len(pdf)
         #  bias >= sum(pdf) / (1 / (2 ulp) - len(pdf))
-        return sum(pdf) / ((1 << self.precision) / 2 - len(pdf))
+        return np.sum(pdf) / ((1 << self.precision) / 2 - len(pdf)) # Can we np'ify? The sum is the one, no?
 
     def val_to_symbol(self, v, denom):
         assert 0 <= v < denom, f"val_to_symbol({v=}, {denom=})"
@@ -204,6 +208,7 @@ class PDFPredictor(Predictor):
         l = -(-(ld * denom) >> self.precision)
         # min h such that h*d//denom >= hd
         h = -(-(hd * denom) >> self.precision)
+        assert h <= denom
         return (l, h)
 
     def copy(self):
@@ -284,7 +289,11 @@ class A_to_bin:
         self.h = self.denom - 1  # High side (implicitly one-extended)
         self.emitted_bits = 0  # Counter of bits emitted by emit_bit
         self.debug_log = None  # Optional list for logging stuff into
-
+        self.accept_list = []  # Optional list for logging accepted symbols for debugging
+        self.uncertain_length = 0
+        self.flushing = False
+        
+        self.debug_log = []
     def __repr__(self):
         sl = bin(self.l + (self.denom << 1))[3:]
         sh = bin(self.h + (self.denom << 1))[3:]
@@ -292,10 +301,12 @@ class A_to_bin:
 
     def receive_symbol(self, symbol):
         """Apply the range update (i.e. zoom in), and tell the predictor about the symbol"""
-        if self.debug_log:
+        if self.debug_log is not None:
             self.debug_log.append((self.l, self.h, "recv", symbol))
         w = self.h - self.l + 1
         r = self.predictor.symbol_to_range(symbol, w)
+        if self.debug_log is not None:
+            self.debug_log[-1] = self.debug_log[-1]+(r,w)
         assert r[1] > r[0], f"{self}.receive_symbol({symbol}) {r=}"
         was_l, was_h = self.l, self.h
         self.h = (
@@ -305,6 +316,7 @@ class A_to_bin:
         assert (
             self.l <= self.h
         ), f"{self}.receive_symbol({symbol}) self.l {was_l}->{self.l}, self.h {was_h}->{self.h}"
+        isinstance(self.accept_list, list) and self.accept_list.append(symbol)
         self.predictor.accept(symbol)
 
     def decide_bit(self):
@@ -313,12 +325,14 @@ class A_to_bin:
         if (self.h - self.l) < self.decision:
             return self.emit_bit(l)
 
-    def emit_bit(self, b):
-        if self.debug_log:
+    def emit_bit(self, b, flushing = False):
+        if self.debug_log is not None:
             self.debug_log.append((self.l, self.h, "emit", b))
         self.l = self.l * 2 - b * self.denom
         self.h = self.h * 2 + 1 - b * self.denom
         self.emitted_bits += 1
+        if self.debug_log is not None: self.debug_log[-1] = self.debug_log[-1] + (self.certain*1,)
+        assert flushing or 0 <= self.l <= self.h < self.denom*2
         return b
 
     def step(self, symbol):
@@ -330,6 +344,8 @@ class A_to_bin:
 
     def flush(self):
         # emit the shortest bit string that is fully within [l,h]
+        self.flushing = True
+        if self.debug_log is not None: self.debug_log.append("flush")
         while self.l > 0 or self.h + 1 < self.denom:
             l = self.l // self.decision
             if region_overlap(
@@ -338,10 +354,14 @@ class A_to_bin:
                 self.l, self.h, (l + 1) * self.decision, (l + 2) * self.decision
             ):
                 l += 1
-            yield self.emit_bit(l)
+            yield self.emit_bit(l,True)
+        if self.debug_log is not None:
+            self.debug_log.append((self.l, self.h, "finish"))
         self.l = 0
         self.h = self.denom - 1
-
+        self.uncertain_length = 0
+        self.flushing = False
+        
     def __call__(self, symbol):
         if symbol is None:
             return tuple(self.flush())
@@ -379,20 +399,40 @@ class A_to_bin:
     def bits(self, symbols, stop=1):
         it = self.run(symbols, stop)
         for v in it:
-            if self.certain:
-                yield v
-            else:
-                r = v
-                l = 1
-                for v in it:
-                    r <<= 1
+            if self.flushing:
+                r = ((((1<<self.uncertain_length)-1)>>1)<<1)+v
+                l = self.uncertain_length+1
+                for b in it:
                     l += 1
-                    r += v
-                    if self.certain:
-                        break
-                while l:
+                    r <<= 1
+                    r += b
+                assert r>>l == 0
+                while l > 0:
                     l -= 1
-                    yield (r >> l) & 1
+                    yield (r >> l)&1
+            elif self.certain:
+                if v < 2:
+                    for i in range(self.uncertain_length):
+                        yield (i!=0)*1
+                    yield v
+                else:
+                    for i in range(self.uncertain_length):
+                        yield (i==0)*1
+                    yield v&1
+                self.uncertain_length = 0
+            elif v == (self.uncertain_length != 0):
+                self.uncertain_length += 1
+            else:
+                if v < 2:
+                    assert v == 0
+                    for i in range(self.uncertain_length):
+                        yield (i!=0)*1
+                else:
+                    assert v == 2
+                    for i in range(self.uncertain_length):
+                        yield (i==0)*1
+                self.uncertain_length = 1
+                
 
 
 class A_from_bin:
@@ -404,6 +444,7 @@ class A_from_bin:
         self.h = self.denom - 1
         self.lb = 0
         self.hb = self.denom - 1
+        self.accept_list = []  # Optional list for logging accepted symbols for debugging
 
     def __repr__(self):
         sl = bin(self.l + (self.denom << 1))[3:]
@@ -442,6 +483,7 @@ class A_from_bin:
         ), "region escaped window"
         self.h = self.l + r[1] - 1
         self.l += r[0]
+        isinstance(self.accept_list, list) and self.accept_list.append(s)
         self.predictor.accept(s)
         return s
 
