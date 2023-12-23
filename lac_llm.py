@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+"""copy of lac.py hacked up to support lactok_compressor.py"""
+##!/usr/bin/env python
 """
 Compress using a trained model as a predictor
 The name ``lac'' is meant to suggest "LLM Arithmetic Coder"
@@ -17,14 +18,13 @@ import zlib
 
 import numpy as np
 import torch
+from torch.nn import functional as F
 import tiktoken
 
 from binascii import hexlify
 from contextlib import nullcontext
 from gpt_model import GPTConfig, GPT
 from pprint import pprint
-
-from ac_for_z import ACSampler, packbits, unpackbits
 
 
 __version_bytes__ = bytes([0, 1])
@@ -210,22 +210,62 @@ def provide_model(args):
     return model, dtype, x
 
 
-def tokens_encoded_from(inf):
-    enc = tiktoken.get_encoding("gpt2")
-    # Without reading the entire file before tokenizing, we cannot
-    # trust the tokenization at the margins of each buffer of text we
-    # tokenize.
-    #
-    # FIXME: for now we trust that there will be line breaks often
-    # enough, and that a line break is a reasonable place to cause a
-    # token break.
-    for line in inf:
-        for tok in enc.encode(line):
-            yield tok
+
+class PredictionService:
+    def __init__(self):
+        pass
+
+    def restart(self):
+        pass
+
+    def accept(self, tok):
+        pass
+
+    @property
+    def probabilities(self):
+        return None
 
 
-from torch.nn import functional as F
-class PDFPredictor:
+class FlatPredictionService(PredictionService):
+    def __init__(self, n_symbols):
+        self.n_symbols = n_symbols
+        self.pdf = np.ones(n_symbols, dtype=np.float64)
+
+    @property
+    def probabilities(self):
+        return self.pdf
+
+
+class CountingPredictionService(PredictionService):
+    def __init__(self, n_symbols):
+        self.n_symbols = n_symbols
+        self.restart()
+
+    def restart(self):
+        self.pdf = np.ones(self.n_symbols, dtype=np.float64) * 0.01
+
+    def accept(self, tok):
+        self.pdf[tok] += 1.0
+
+    @property
+    def probabilities(self):
+        return self.pdf
+
+
+
+class LLMPredictionService(PredictionService):
+    def __init__(self, llm_predictor):
+        self.p = llm_predictor
+
+    def accept(self, tok):
+        pass
+
+    def probabilities(self):
+        pass
+
+
+
+class LLMPredictor:
     def __init__(self, model, ctx, temperature=1.0):
         self.model = model
         self.ctx = ctx
@@ -249,87 +289,7 @@ class PDFPredictor:
         return probabilities.cpu()
 
 
-def main(argv):
-    parser = argparse.ArgumentParser(
-        description="Arithmetic compression with LLM predictor.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        "-i", "--input", type=str, default="-", help="Input filename, or '-' for stdin"
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default="-",
-        help="Output filename, or '-' for stdout",
-    )
-    parser.add_argument(
-        "--flushalot", action="store_true", help="flush output frequently"
-    )
-    parser.add_argument(
-        "-d",
-        "--decompress",
-        action="store_true",
-        help="decompress rather than compress",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cpu",
-        help="device to run the model, e.g 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.",
-    )
-    parser.add_argument(
-        "--threads",
-        type=int,
-        # default=4,
-        default=psutil.cpu_count(logical=False),
-        help="number of threads to use if device is cpu",
-    )
-    parser.add_argument(
-        "-m", "--model", type=str, default="internal", help="model to use for prediction",
-    )
-    parser.add_argument(
-        "-T", "--temperature", type=float, default=1.0, help="model's logits scaling"
-    )
-    parser.add_argument(
-        "--precision",
-        type=int,
-        default=48,
-        help="fractional bits in the probability register",
-    )
-    parser.add_argument(
-        "-F", "--format",
-        default="auto",
-        choices=["auto", "raw", "bighead"],
-        help="the file format to compress or decompress"
-    )
-    parser.add_argument(
-        "-v", "--verbose", default=0, action="count", help="verbosity about internals"
-    )
-    parser.add_argument("-q", "--quiet", action="store_true", help="work quietly")
-
-    args = parser.parse_args()
-
-    our_versions = get_versions()
-    if args.verbose > 1:
-        print("Versions:")
-        pprint(versions)
-
-    if args.output and args.output != "-":
-        outf = open(args.output, "w+b")
-    else:
-        outf = sys.stdout.buffer
-
-    if args.input == "-":
-        if args.decompress:
-            inf = sys.stdin.buffer # gives bytes
-        else:
-            inf = sys.stdin     # gives text
-        header_source = sys.stdin.buffer
-    else:
-        inf = open(args.input, args.decompress and "rb" or "r")
-        header_source = inf
+if False:
 
     if args.decompress and args.format in ["auto", "bighead"]:
         input_version_bytes, input_versions = get_header_and_advance(header_source)
@@ -348,94 +308,6 @@ def main(argv):
     eot_token = enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
     args.verbose and print(f"<|endoftext|> is {eot_token}")
 
-    sampler = ACSampler(precision=args.precision, end_of_text_token=eot_token)
-    if args.verbose > 2:
-
-        def bpt(v, s=[0, 0]):
-            s[0] += 1
-            s[1] += v
-            print(
-                f"\x1b[Kcompressed {s[0]} tokens to {s[1]:.2f} bits, bpt {v:8.3f}, avgbpt {s[1]/s[0]:6.3f}",
-                end="\r",
-            )
-            # print(f"compressed {s[0]} tokens to {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}")
-
-        sampler.bits_per_token = bpt
-
-    if args.decompress:
-
-        def input_generator():
-            def int_yielder(f):
-                b = f.read(1)
-                while b:
-                    yield int.from_bytes(b, "big")
-                    b = f.read(1)
-
-            yield from int_yielder(inf)
-
-        sampler.decompress_bits = unpackbits(input_generator())
-
-        # enc = tiktoken.get_encoding("gpt2")
-        def decompressed_token_writer(tok):
-            outf.write(enc.decode_single_token_bytes(tok))
-            if outf == sys.stdout.buffer or args.flushalot:
-                outf.flush()
-
-        sampler.decompress_output = decompressed_token_writer
-
-        def bpt(v, s=[0, 0]):
-            s[0] += 1
-            s[1] += v
-            print(
-                f"\x1b[Kdecompressed {s[0]} digits from {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}",
-                end="\r",
-            )
-            # print(f"decompressed {s[0]} digits from {s[1]} bits, bpt={v}, avgbpt = {s[1]/s[0]}")
-
-        sampler.bits_per_token = args.verbose > 1 and bpt or None
-
-        def decomp_done():
-            sampler.on_decompress_done = None
-            sampler.decompress_output = None
-            sampler.bits_per_token = None
-            args.verbose and print("\ndone decompressing")
-            if outf != sys.stdout.buffer:
-                outf.close()
-
-        sampler.on_decompress_done = decomp_done
-
-    else:
-        # run compression
-        if args.format in ("auto", "bighead"):
-            outf.write(lacz_header())
-
-        def tokens_with_eot():
-            file_name = args.input
-            yield from tokens_encoded_from(inf)
-            yield eot_token
-            yield eot_token  # FIXME: needed twice still?
-
-        sampler.compress_tokens = tokens_with_eot()
-
-        def compressed_byte_writer(v):
-            outf.write(bytes((v,)))
-            if outf == sys.stdout.buffer or args.flushalot:
-                outf.flush()
-
-        # sampler.compress_output = packbits(lambda v: outf.write(bytes((v,))))
-        sampler.compress_output = packbits(compressed_byte_writer)
-
-        def comp_done():
-            sampler.on_compress_done = None
-            sampler.flush_compress()
-            sampler.compress_output.flush()
-            sampler.bits_per_token = None
-            sampler.compress_output = None
-            args.verbose and print("\ndone compressing")
-            if outf != sys.stdout.buffer:
-                outf.close()
-
-        sampler.on_compress_done = comp_done
 
     device_type = (
         "cuda" if "cuda" in device else "cpu"
@@ -472,7 +344,3 @@ def main(argv):
         idx_next = torch.tensor([[actual]]).to(device)
         # append sampled index to the running sequence and continue
         idx = torch.cat((idx, idx_next), dim=1)
-
-
-if __name__ == "__main__":
-    main(sys.argv)

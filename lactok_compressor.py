@@ -12,6 +12,7 @@ import tiktoken
 from typing import List, Tuple
 
 from lac_llm import provide_model
+from lac_llm import PredictionService, FlatPredictionService, CountingPredictionService
 from ac2_for_z import PDFPredictor, A_to_bin, A_from_bin
 
 
@@ -22,35 +23,31 @@ _EOS = b"That's all, folks!"    # DEBUG
 PRECISION = 48                        # The arithmetic coder's arithmetic precision to use
 
 class TokPredictor(PDFPredictor):
-    def __init__(self, max_token, precision=PRECISION):
+    def __init__(self, max_token, prediction_service: PredictionService, precision=PRECISION):
         logging.debug(f"TokPredictor({max_token=}, {precision=})")
         assert 1 < precision < 64 #uint64 limit
         super().__init__(None, precision)
         self.max_token = max_token
+        self.prediction_service = prediction_service
         self.restart()
 
     def __repr__(self):
-        max_tok_i = np.argmax(self.pdf)
-        max_tok_p = self.pdf[max_tok_i]
-        return "\n".join([f"TokPredictor: {self.max_token}, {self.precision} {self.accepts=} pdf {max_tok_i}: {max_tok_p}",
-                         f"{sum(self.pdf)=}, {sum(self.pdf)-len(self.pdf)-self.accepts=}"])
+        # max_tok_i = np.argmax(self.pdf)
+        # max_tok_p = self.pdf[max_tok_i]
+        # return "\n".join([f"TokPredictor: {self.max_token}, {self.precision} {self.accepts=} pdf {max_tok_i}: {max_tok_p}",
+        #                  f"{sum(self.pdf)=}, {sum(self.pdf)-len(self.pdf)-self.accepts=}"])
+        return f"TokPredictor: {self.max_token}, {self.precision} {self.accepts=}"
     
     def restart(self):
-        self.pdf = np.ones(self.max_token+1, dtype=np.float64) * 0.01
-        self.set_cdf_from_pdf(self.pdf)
+        self.prediction_service.restart()
+        self.set_cdf_from_pdf(self.prediction_service.probabilities)
         self.accepts = 0
 
     def accept(self, tok):
-        #super().accept(tok)
         assert 0 <= tok <= self.max_token
-        self.pdf[tok] += 1
-        self.set_cdf_from_pdf(self.pdf)
+        self.prediction_service.accept(tok)
+        self.set_cdf_from_pdf(self.prediction_service.probabilities)
         self.accepts += 1
-
-    # UNNECESSARY I think:
-    def copy(self):
-        raise NotImplementedError
-        return type(self)(self.max_token, self.precision)
 
 
 class LACTokCompressor:
@@ -66,7 +63,7 @@ class LACTokCompressor:
         if self.tok_mode == "buffer minimum for correct":
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        self.predictor = TokPredictor(self.eot_token)
+        self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
         # moved self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
         logging.debug(f"LACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
@@ -205,7 +202,7 @@ class LACTokDecompressor:
         self.encoding_name = encoding_name
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        self.predictor = TokPredictor(self.eot_token)
+        self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
         self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
         logging.debug(f"LACTokDecompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.dtype = np.dtype('<u2')
@@ -370,7 +367,7 @@ def bits_to_bytes(bitstream: List[int]): #-> Tuple(bytearray, List[int]):
 
     # Convert the list to a NumPy array
     bit_array = np.array(bitstream, dtype='uint8')
-    #assert np.all((bit_array >= 0) & (bit_array <= 1)), "Some bits in call to bits_to_bytes were improper"
+    assert np.all((bit_array >= 0) & (bit_array <= 1)), "Some bits in call to bits_to_bytes were improper"
 
     if len(bit_array) % 8 != 0:
         raise ValueError("Length of bitstream should be a multiple of 8")
