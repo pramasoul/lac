@@ -183,6 +183,7 @@ def test_bad_args():
     with pytest.raises(TypeError):
         LacFile(os.devnull, "r", 3)
 
+@pytest.mark.compressed_data
 def test_read():
     text = b"Hello world!"
     #data = b'\xfe\xfe\x88<\xe3\x03\x00\x00\xff\xff'
@@ -341,6 +342,7 @@ class Test_LacFile(BaseTest):
         # compresslevel is keyword-only
         pytest.raises(TypeError, LacFile, os.devnull, "r", 3)
 
+    @pytest.mark.compressed_data
     def test_read(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -352,12 +354,14 @@ class Test_LacFile(BaseTest):
         with LacFile(self.filename) as bz2f:
             pytest.raises(OSError, bz2f.read)
 
+    @pytest.mark.compressed_data
     def test_read_multi_stream(self):
         self.createTempFile(streams=5)
         with LacFile(self.filename) as bz2f:
             pytest.raises(TypeError, bz2f.read, float())
             assert bz2f.read() == self.TEXT * 5
 
+    @pytest.mark.compressed_data
     def test_read_monkey_multi_stream(self):
         # Test LacFile.read() on a multi-stream archive where a stream
         # boundary coincides with the end of the raw read buffer.
@@ -371,22 +375,26 @@ class Test_LacFile(BaseTest):
         finally:
             _compression.BUFFER_SIZE = buffer_size
 
+    @pytest.mark.compressed_data
     def test_read_trailing_junk(self):
         self.createTempFile(suffix=self.BAD_DATA)
         with LacFile(self.filename) as bz2f:
             assert bz2f.read() == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_read_multi_stream_trailing_junk(self):
         self.createTempFile(streams=5, suffix=self.BAD_DATA)
         with LacFile(self.filename) as bz2f:
             assert bz2f.read() == self.TEXT * 5
 
+    @pytest.mark.compressed_data
     def test_read0(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
             pytest.raises(TypeError, bz2f.read, float())
             assert bz2f.read(0) == b""
 
+    @pytest.mark.compressed_data
     def test_read_chunk10(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -398,6 +406,7 @@ class Test_LacFile(BaseTest):
                 text += str
             assert text == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_read_chunk10_multi_stream(self):
         self.createTempFile(streams=5)
         with LacFile(self.filename) as bz2f:
@@ -409,11 +418,13 @@ class Test_LacFile(BaseTest):
                 text += str
             assert text == self.TEXT * 5
 
+    @pytest.mark.compressed_data
     def test_read100(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
             assert bz2f.read(100) == self.TEXT[:100]
 
+    @pytest.mark.compressed_data
     def test_peek(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -422,6 +433,7 @@ class Test_LacFile(BaseTest):
             assert self.TEXT.startswith(pdata)
             assert bz2f.read() == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_read_into(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -434,6 +446,7 @@ class Test_LacFile(BaseTest):
             assert bz2f.readinto(b) == n
             assert b[:n] == self.TEXT[-n:]
 
+    @pytest.mark.compressed_data
     def test_read_line(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -441,6 +454,7 @@ class Test_LacFile(BaseTest):
             for line in self.TEXT_LINES:
                 assert bz2f.readline() == line
 
+    @pytest.mark.compressed_data
     def test_read_line_multi_stream(self):
         self.createTempFile(streams=5)
         with LacFile(self.filename) as bz2f:
@@ -448,23 +462,27 @@ class Test_LacFile(BaseTest):
             for line in self.TEXT_LINES * 5:
                 assert bz2f.readline() == line
 
+    @pytest.mark.compressed_data
     def test_read_lines(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
             pytest.raises(TypeError, bz2f.readlines, None)
             assert bz2f.readlines() == self.TEXT_LINES
 
+    @pytest.mark.compressed_data
     def test_read_lines_multi_stream(self):
         self.createTempFile(streams=5)
         with LacFile(self.filename) as bz2f:
             pytest.raises(TypeError, bz2f.readlines, None)
             assert bz2f.readlines() == self.TEXT_LINES * 5
 
+    @pytest.mark.compressed_data
     def test_iterator(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
             assert list(iter(bz2f)) == self.TEXT_LINES
 
+    @pytest.mark.compressed_data
     def test_iterator_multi_stream(self):
         self.createTempFile(streams=5)
         with LacFile(self.filename) as bz2f:
@@ -533,6 +551,7 @@ class Test_LacFile(BaseTest):
         with open(self.filename, 'rb') as f:
             assert ext_decompress(f.read()) == self.TEXT * 2
 
+    @pytest.mark.compressed_data
     def test_seek_forward(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -540,6 +559,7 @@ class Test_LacFile(BaseTest):
             bz2f.seek(150)
             assert bz2f.read() == self.TEXT[150:]
 
+    @pytest.mark.compressed_data
     def test_seek_forward_across_streams(self):
         self.createTempFile(streams=2)
         with LacFile(self.filename) as bz2f:
@@ -547,6 +567,7 @@ class Test_LacFile(BaseTest):
             bz2f.seek(len(self.TEXT) + 150)
             assert bz2f.read() == self.TEXT[150:]
 
+    @pytest.mark.compressed_data
     def test_seek_backwards(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -554,6 +575,7 @@ class Test_LacFile(BaseTest):
             bz2f.seek(-150, 1)
             assert bz2f.read() == self.TEXT[500-150:]
 
+    @pytest.mark.compressed_data
     def test_seek_backwards_across_streams(self):
         self.createTempFile(streams=2)
         with LacFile(self.filename) as bz2f:
@@ -563,12 +585,14 @@ class Test_LacFile(BaseTest):
             bz2f.seek(-150, 1)
             assert bz2f.read() == self.TEXT[100-150:] + self.TEXT
 
+    @pytest.mark.compressed_data
     def test_seek_backwards_from_end(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
             bz2f.seek(-150, 2)
             assert bz2f.read() == self.TEXT[len(self.TEXT)-150:]
 
+    @pytest.mark.compressed_data
     def test_seek_backwards_from_end_across_streams(self):
         self.createTempFile(streams=2)
         with LacFile(self.filename) as bz2f:
@@ -576,6 +600,7 @@ class Test_LacFile(BaseTest):
             read_result = bz2f.read()
         assert read_result == (self.TEXT * 2)[-1000:]
 
+    @pytest.mark.compressed_data
     def test_seek_post_end(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -583,6 +608,7 @@ class Test_LacFile(BaseTest):
             assert bz2f.tell() == len(self.TEXT)
             assert bz2f.read() == b""
 
+    @pytest.mark.compressed_data
     def test_seek_post_end_multi_stream(self):
         self.createTempFile(streams=5)
         with LacFile(self.filename) as bz2f:
@@ -590,6 +616,7 @@ class Test_LacFile(BaseTest):
             assert bz2f.tell() == len(self.TEXT) * 5
             assert bz2f.read() == b""
 
+    @pytest.mark.compressed_data
     def test_seek_post_end_twice(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -598,6 +625,7 @@ class Test_LacFile(BaseTest):
             assert bz2f.tell() == len(self.TEXT)
             assert bz2f.read() == b""
 
+    @pytest.mark.compressed_data
     def test_seek_post_end_twice_multi_stream(self):
         self.createTempFile(streams=5)
         with LacFile(self.filename) as bz2f:
@@ -606,6 +634,7 @@ class Test_LacFile(BaseTest):
             assert bz2f.tell() == len(self.TEXT) * 5
             assert bz2f.read() == b""
 
+    @pytest.mark.compressed_data
     def test_seek_pre_start(self):
         self.createTempFile()
         with LacFile(self.filename) as bz2f:
@@ -613,6 +642,7 @@ class Test_LacFile(BaseTest):
             assert bz2f.tell() == 0
             assert bz2f.read() == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_seek_pre_start_multi_stream(self):
         self.createTempFile(streams=2)
         with LacFile(self.filename) as bz2f:
@@ -630,6 +660,7 @@ class Test_LacFile(BaseTest):
                 bz2f.close()
         pytest.raises(ValueError, bz2f.fileno)
 
+    @pytest.mark.compressed_data
     def test_seekable(self):
         bz2f = LacFile(BytesIO(self.DATA))
         try:
@@ -656,6 +687,7 @@ class Test_LacFile(BaseTest):
             bz2f.close()
         pytest.raises(ValueError, bz2f.seekable)
 
+    @pytest.mark.compressed_data
     def test_readable(self):
         bz2f = LacFile(BytesIO(self.DATA))
         try:
@@ -673,6 +705,7 @@ class Test_LacFile(BaseTest):
             bz2f.close()
         pytest.raises(ValueError, bz2f.readable)
 
+    @pytest.mark.compressed_data
     def test_writable(self):
         bz2f = LacFile(BytesIO(self.DATA))
         try:
@@ -690,6 +723,7 @@ class Test_LacFile(BaseTest):
             bz2f.close()
         pytest.raises(ValueError, bz2f.writable)
 
+    @pytest.mark.compressed_data
     def test_open_del(self):
         self.createTempFile()
         for i in range(10000):
@@ -747,6 +781,7 @@ class Test_LacFile(BaseTest):
             with threading_helper.start_threads(threads):
                 pass
 
+    @pytest.mark.compressed_data
     def test_mixed_iteration_and_reads(self):
         self.createTempFile()
         linelen = len(self.TEXT_LINES[0])
@@ -813,6 +848,7 @@ class Test_LacFile(BaseTest):
 
     # Tests for a LacFile wrapping another file object:
 
+    @pytest.mark.compressed_data
     #@pytest.mark.skip(reason="Binary data with our flags in it")
     def test_read_bytes_io(self):
         with BytesIO(self.DATA) as bio:
@@ -821,6 +857,7 @@ class Test_LacFile(BaseTest):
                 assert bz2f.read() == self.TEXT
             assert not bio.closed
 
+    @pytest.mark.compressed_data
     def test_peek_bytes_io(self):
         with BytesIO(self.DATA) as bio:
             with LacFile(bio) as bz2f:
@@ -837,6 +874,7 @@ class Test_LacFile(BaseTest):
             assert ext_decompress(bio.getvalue()) == self.TEXT
             assert not bio.closed
 
+    @pytest.mark.compressed_data
     def test_seek_forward_bytes_io(self):
         with BytesIO(self.DATA) as bio:
             with LacFile(bio) as bz2f:
@@ -844,6 +882,7 @@ class Test_LacFile(BaseTest):
                 bz2f.seek(150)
                 assert bz2f.read() == self.TEXT[150:]
 
+    @pytest.mark.compressed_data
     def test_seek_backwards_bytes_io(self):
         with BytesIO(self.DATA) as bio:
             with LacFile(bio) as bz2f:
@@ -930,13 +969,14 @@ class TestLacDecompressor(BaseTest):
     def test_constructor(self):
         pytest.raises(TypeError, LacDecompressor, 42)
 
+    @pytest.mark.compressed_data
     def test_decompress(self):
         bz2d = LacDecompressor()
         pytest.raises(TypeError, bz2d.decompress)
         text = bz2d.decompress(self.DATA)
         assert text == self.TEXT
 
-    #@pytest.mark.skip(reason="FIXME")
+    @pytest.mark.compressed_data
     def test_decompress_chunks10(self):
         bz2d = LacDecompressor()
         text = b''
@@ -949,6 +989,7 @@ class TestLacDecompressor(BaseTest):
             n += 1
         assert text == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_decompress_unused_data(self):
         bz2d = LacDecompressor()
         unused_data = b"this is unused data"
@@ -956,6 +997,7 @@ class TestLacDecompressor(BaseTest):
         assert text == self.TEXT
         assert bz2d.unused_data == unused_data
 
+    @pytest.mark.compressed_data
     def test_eoferror(self):
         bz2d = LacDecompressor()
         text = bz2d.decompress(self.DATA)
@@ -985,6 +1027,7 @@ class TestLacDecompressor(BaseTest):
             with pytest.raises(TypeError):
                 pickle.dumps(LacDecompressor(), proto)
 
+    @pytest.mark.compressed_data
     def test_decompressor_chunks_maxsize(self):
         bzd = LacDecompressor()
         max_length = 100
@@ -1016,6 +1059,7 @@ class TestLacDecompressor(BaseTest):
         assert out == self.BIG_TEXT
         assert bzd.unused_data == b""
 
+    @pytest.mark.compressed_data
     def test_decompressor_inputbuf_1(self):
         # Test reusing input buffer after moving existing
         # contents to beginning
@@ -1038,6 +1082,7 @@ class TestLacDecompressor(BaseTest):
         out.append(bzd.decompress(self.DATA[105:]))
         assert b''.join(out) == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_decompressor_inputbuf_2(self):
         # Test reusing input buffer by appending data at the
         # end right away
@@ -1059,6 +1104,7 @@ class TestLacDecompressor(BaseTest):
         out.append(bzd.decompress(self.DATA[300:]))
         assert b''.join(out) == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_decompressor_inputbuf_3(self):
         # Test reusing input buffer after extending it
 
@@ -1100,6 +1146,7 @@ class TestCompressDecompress(BaseTest):
         text = lac.compress(b'')
         assert text == self.EMPTY_DATA
 
+    @pytest.mark.compressed_data
     def test_decompress(self):
         text = lac.decompress(self.DATA)
         assert text == self.TEXT
@@ -1112,20 +1159,24 @@ class TestCompressDecompress(BaseTest):
         text = lac.decompress(self.EMPTY_DATA)
         assert text == b''
 
+    @pytest.mark.compressed_data
     def test_decompress_incomplete(self):
         pytest.raises(ValueError, lac.decompress, self.DATA[:-10])
 
     def test_decompress_bad_data(self):
         pytest.raises(OSError, lac.decompress, self.BAD_DATA)
 
+    @pytest.mark.compressed_data
     def test_decompress_multi_stream(self):
         text = lac.decompress(self.DATA * 5)
         assert text == self.TEXT * 5
 
+    @pytest.mark.compressed_data
     def test_decompress_trailing_junk(self):
         text = lac.decompress(self.DATA + self.BAD_DATA)
         assert text == self.TEXT
 
+    @pytest.mark.compressed_data
     def test_decompress_multi_stream_trailing_junk(self):
         text = lac.decompress(self.DATA * 5 + self.BAD_DATA)
         assert text == self.TEXT * 5
@@ -1201,6 +1252,7 @@ class TestOpen(BaseTest):
                 with self.open(self.filename, mode) as f:
                     pass
 
+    @pytest.mark.compressed_data
     def test_fileobj(self):
         with self.open(BytesIO(self.DATA), "r") as f:
             assert f.read() == self.TEXT

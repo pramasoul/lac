@@ -36,7 +36,7 @@ class TokPredictor(PDFPredictor):
                          f"{sum(self.pdf)=}, {sum(self.pdf)-len(self.pdf)-self.accepts=}"])
     
     def restart(self):
-        self.pdf = np.ones(self.max_token+1, dtype=np.float64)
+        self.pdf = np.ones(self.max_token+1, dtype=np.float64) * 0.01
         self.set_cdf_from_pdf(self.pdf)
         self.accepts = 0
 

@@ -124,11 +124,13 @@ def test_bits_to_bytes_to_bits():
         assert b2y(y2b((b))) == (b, [])
 
 
+@pytest.mark.compressed_data
 def test_compress_empty():
     c = atc.LACTokCompressor()
     compressed = c.compress("") + c.flush()
     assert compressed == b"\xfe\xfe\xff\xffThat's all, folks!"
     
+@pytest.mark.compressed_data
 def test_decompress_empty():
     compressed = b"\xfe\xfe\xff\xffThat's all, folks!"
     d = atc.LACTokDecompressor()

@@ -1,0 +1,17 @@
+Quick test:
+  pytest -v --log-level=DEBUG -n auto --dist worksteal
+
+Thorough test:
+  pytest -v --log-level=DEBUG -n auto --dist worksteal -k ""
+
+Rerun just the failing tests
+  --lf
+
+Clear the cache of test results
+  --cache-clear
+
+Omit tests marked with @pytest.mark.compressed_data:
+  --skip-compressed
+
+Run only tests marked with @pytest.mark.compressed_data:
+  -k "compressed_data"
