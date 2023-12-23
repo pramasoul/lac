@@ -177,6 +177,14 @@ def test_cd_short_nl():
         reconstructed = d.decompress(zbody + ztail)
         assert text == reconstructed
 
+def test_cd_short_2nl():
+    for c,d in ((tc.TokCompressor(),tc.TokDecompressor()), (atc.ACTokCompressor(),atc.ACTokDecompressor())):
+        text = b"\n\n"
+        zbody = c.compress(text)
+        ztail = c.flush()
+        reconstructed = d.decompress(zbody + ztail)
+        assert text == reconstructed
+
 def test_cd_brief():
     compress_decompress_test(b"The quick brown fox jumped over the lazy dogs.\n")
 
@@ -199,3 +207,135 @@ def test_cd_caat(medium_text):
     cd_char_at_a_time_test("Hi!")
     cd_char_at_a_time_test("The quick brown fox jumped over the lazy dogs.\n")
     cd_char_at_a_time_test(medium_text)
+
+
+import glob
+import os
+
+def like_from_tlacz_test(size):
+    #logging.debug(f"test_like_from_tlacz({size=})")
+    test_size = 0
+    text = bytearray(size)
+    for fname in glob.glob(os.path.join(glob.escape(os.path.dirname(__file__)), '*.py')):
+        with open(fname, 'rb') as fh:
+            test_size += fh.readinto(memoryview(text)[test_size:])
+        if test_size > 128*1024:
+            break
+    assert len(text) == size
+    #BIG_DATA = lac.compress(BIG_TEXT, compresslevel=1)
+    comp = atc.ACTokCompressor()
+    data = comp.compress(text, compresslevel=1)
+    logging.debug(f"pre-flush {comp=}")
+    data += comp.flush()
+    logging.debug(f"post-flush {comp=}")
+
+def test_like_from_tlacz_short():
+    like_from_tlacz_test(128)
+
+@pytest.mark.parametrize("size", [1<<i for i in range(16)])
+def test_like_from_tlacz_ramp(benchmark, size):
+    #like_from_tlacz_test(size)
+    #v = benchmark(like_from_tlacz_test, size)
+    benchmark.pedantic(like_from_tlacz_test, args=(size,), iterations=1, rounds=1)
+    
+
+data1 = b"""  int length=DEFAULTALLOC, err = Z_OK;
+  PyObject *RetVal;
+  int flushmode = Z_FINISH;
+  unsigned long start_total_out;
+
+"""
+
+
+
+
+def test_find_tok_difference_in_compressed():
+    for n in range(7):
+        input_data = data1 * n
+        comp_lbl = atc.ACTokCompressor(tok_mode = "line-by-line",save_toks=1)
+        data_lbl = comp_lbl.compress(input_data, compresslevel=1) + comp_lbl.flush()
+        comp_hold = atc.ACTokCompressor(tok_mode = "hold all until flush",save_toks=1)
+        data_hold = comp_hold.compress(input_data, compresslevel=1) + comp_hold.flush()
+        comp_minbuf = atc.ACTokCompressor(tok_mode = "buffer minimum for correct",save_toks=1)
+        data_minbuf = comp_minbuf.compress(input_data, compresslevel=1) + comp_minbuf.flush()
+        decomp = atc.ACTokDecompressor()
+        decompressed = decomp.decompress(data_hold)
+
+        comp_lbl.predictor.restart()
+        bits1 = [list(comp_lbl.a2b.bits(comp_lbl.toks[0],0))]
+        a = (repr(comp_lbl.a2b),comp_lbl.a2b.certain)
+        bits1 += [list(comp_lbl.a2b.bits(comp_lbl.toks[1]))]
+        comp_lbl.predictor.restart()
+        bits2 = list(comp_lbl.a2b.bits(comp_lbl.toks[0]+comp_lbl.toks[1]))
+        comp_lbl.predictor.restart()
+        bits3 = [list(comp_lbl.a2b.bits(comp_lbl.toks[0]+comp_lbl.toks[1],0))]
+        b = repr(comp_lbl.a2b)
+        bits3 += [list(comp_lbl.a2b.bits([]))]
+        
+        assert (bits1[0]+bits1[1]) == bits2
+        
+        assert decompressed == input_data
+        assert data_hold == data_minbuf
+        assert atc.ACTokDecompressor().decompress(data_lbl) == input_data
+        #assert data_lbl == data_hold == data_minbuf
+
+        # logging.info(f"pre-flush {comp=} {len(data)=}")
+        # data += comp.flush()
+        # logging.info(f"post-flush {comp=} {len(data)=}")
+
+
+@pytest.mark.parametrize("n", [0,1,2,3,4,8,16,32,48,50])
+def test_n_like_tlacz_write_read_with_pathlike_file(n):
+    like_tlacz_write_read_with_pathlike_file_test(data1 * n)
+
+def test_like_tlacz_write_read_with_pathlike_file(tmp_path):
+    data50 = data1 * 50
+    like_tlacz_write_read_with_pathlike_file_test(data50 + b'.') # Passes
+    like_tlacz_write_read_with_pathlike_file_test(data50) # Fails
+
+
+def like_tlacz_write_read_with_pathlike_file_test(input_data):
+    comp = atc.ACTokCompressor()
+    data = comp.compress(input_data, compresslevel=1)
+    logging.info(f"pre-flush {comp=} {len(data)=}")
+    data += comp.flush()
+    logging.info(f"post-flush {comp=} {len(data)=}")
+    decomp = atc.ACTokDecompressor()
+    decompressed = decomp.decompress(data)
+    if decompressed != input_data:
+        logging.info(f"{input_data[-50:]}")
+        logging.info(f"{decompressed[len(input_data)-50:]}")
+        logging.info(f"{comp.predictor=}")
+        logging.info(f"{comp.a2b.accept_list[-50:]=}")
+        logging.info(f"{decomp.predictor=}")
+        logging.info(f"{decomp.b2a.accept_list[-50:]=}")
+    assert decompressed == input_data
+    # return
+    # with LacFile(filename) as f:
+    #     d = f.read()
+    # assert d == data1 * 50
+    # with LacFile(filename, 'a') as f:
+    #     f.write(data1)
+    # with LacFile(filename) as f:
+    #     d = f.read()
+    # assert d == data1 * 51
+    # assert isinstance(f.name, str)
+
+
+def test_like_tlacz_multi_stream_ordering():
+    # Test the ordering of streams when reading a multi-stream archive.
+    data1 = b"foo" * 1000
+    data2 = b"bar" * 1000
+    # with LacFile(filename, "w") as bz2f:
+    #     bz2f.write(data1)
+    # with LacFile(filename, "a") as bz2f:
+    #     bz2f.write(data2)
+    # with LacFile(filename) as bz2f:
+    #     assert bz2f.read() == data1 + data2
+    comp = atc.ACTokCompressor()
+    data = comp.compress(data1, compresslevel=1) + comp.flush()
+    comp = atc.ACTokCompressor()
+    data += comp.compress(data2, compresslevel=1) + comp.flush()
+    decomp = atc.ACTokDecompressor()
+    decompressed = decomp.decompress(data)
+    assert decompressed == data1 + data2

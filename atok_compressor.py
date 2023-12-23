@@ -25,42 +25,61 @@ class TokPredictor(PDFPredictor):
         assert 1 < precision < 64 #uint64 limit
         super().__init__(None, precision)
         self.max_token = max_token
+        self.restart()
 
+    def __repr__(self):
+        max_tok_i = np.argmax(self.pdf)
+        max_tok_p = self.pdf[max_tok_i]
+        return "\n".join([f"TokPredictor: {self.max_token}, {self.precision} {self.accepts=} pdf {max_tok_i}: {max_tok_p}",
+                         f"{sum(self.pdf)=}, {sum(self.pdf)-len(self.pdf)-self.accepts=}"])
+    
     def restart(self):
-        pass
+        self.pdf = np.ones(self.max_token+1, dtype=np.float64)
+        self.set_cdf_from_pdf(self.pdf)
+        self.accepts = 0
+
+    def accept(self, tok):
+        #super().accept(tok)
+        assert 0 <= tok <= self.max_token
+        self.pdf[tok] += 1
+        self.set_cdf_from_pdf(self.pdf)
+        self.accepts += 1
 
     # UNNECESSARY I think:
     def copy(self):
+        raise NotImplementedError
         return type(self)(self.max_token, self.precision)
 
 
 class ACTokCompressor:
     """Arithmetic Coding tok compressor"""
 
-    def __init__(self, compression_level=9, encoding_name="gpt2"):
+    def __init__(self, compression_level=9, encoding_name="gpt2", tok_mode="line-by-line", save_toks=False):
         # FIXME: This is bz2-specific:
         if compression_level < 0 or compression_level > 9:
             raise TypeError
         self.encoding_name = encoding_name
+        self.tok_mode = tok_mode #DEBUG
         self.tok_enc = tiktoken.get_encoding(encoding_name)
+        if self.tok_mode == "buffer minimum for correct":
+            self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
         self.predictor = TokPredictor(self.eot_token)
-        self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
+        # moved self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
         logging.debug(f"ACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
         self.input_accumulator = ""
         self.bits_accumulator = []
         self.header_sent = False
 
+        self.debug_save_toks = save_toks
+        if save_toks:
+            self.toks = []
+
     def __repr__(self):
-        return f"comp({self.encoding_name} {' H'[self.header_sent]},{len(self.input_accumulator)}({self.input_accumulator[:4]}) -> {len(self.bits_accumulator)}({''.join(str(v) for v in self.bits_accumulator[:8])})"
+        return f"comp({self.encoding_name} {self.predictor} {' H'[self.header_sent]},{len(self.input_accumulator)}({self.input_accumulator[:4]}) -> {len(self.bits_accumulator)}({''.join(str(v) for v in self.bits_accumulator[:8])})"
 
     def compress(self, data, *args, **kwargs):
-        # Without reading the entire file before tokenizing, we cannot
-        # trust the tokenization at the margins of each buffer of text
-        # we tokenize.
-        # FIXME: for now we trust that there will be line breaks often
-        # enough, and that a line break is a guarantee of token break.
         logging.debug(f"ACTokCompressor.compress({len(data)=}) {self=}")
 
         # Ensure data is in text format
@@ -80,16 +99,47 @@ class ACTokCompressor:
         else:
             rv = b''
 
+        # Without reading the entire file before tokenizing, we cannot
+        # trust the tokenization at the margins of each buffer of text
+        # we tokenize.
+        # FIXME: for now we trust that there will be line breaks often
+        # enough, and that a line break is a guarantee of token break.
+
         toks = []
-        nl_split = self.input_accumulator.split('\n')
-        for line in nl_split[:-1]:
-            toks.extend(self.tok_enc.encode(line + '\n'))
-        self.input_accumulator = nl_split[-1]
+        # DEBUG
+        #tok_mode = "hold all until flush"
+        if self.tok_mode == "line-by-line":
+            # old way, buggy, but don't have good explanation.
+            # Fails on test_atok_compressor.py::test_like_tlacz_write_read_with_pathlike_file
+            nl_split = self.input_accumulator.split('\n')
+            for line in nl_split[:-1]:
+                toks.extend(self.tok_enc.encode(line + '\n'))
+            self.input_accumulator = nl_split[-1]
+        elif self.tok_mode == "all but last partial line":
+            nl_split =  self.input_accumulator.rsplit('\n', maxsplit=1)
+            if len(nl_split) == 2:
+                if nl_split[1]:
+                    toks.extend(self.tok_enc.encode(nl_split[0] + '\n'))
+                    self.input_accumulator = nl_split[1]
+            # else no text past last newline (if any) yet
+        elif self.tok_mode == "hold all until flush":
+            pass
+        elif self.tok_mode == "buffer minimum for correct":
+            if len(self.input_accumulator) >= self.tok_max:
+                for t in self.tok_enc.encode(self.input_accumulator):
+                    toks.append(t)
+                    self.input_accumulator = self.input_accumulator[len(self.tok_enc.decode([t])):]
+                    if len(self.input_accumulator) < self.tok_max:
+                        break
+
 
         try:
             eot_ix = toks.locate(self.eot_token)
         except:
             eot_ix = None
+        logging.info(f"{len(toks)=}, {toks[-10:]=}")
+        if self.debug_save_toks:
+            self.toks.append(toks)
         self.bits_accumulator.extend(list(self.a2b.bits(toks, stop=False)))
         logging.debug(f"ACTokCompressor.compress {self=}")
         v, self.bits_accumulator = bits_to_bytes(self.bits_accumulator)
@@ -99,14 +149,19 @@ class ACTokCompressor:
 
 
     def flush(self, *args):
-        logging.debug(f"ACTokCompressor.flush({self=}, {args=})")
+        logging.info(f"ACTokCompressor.flush({self=}, {args=})")
         toks = self.tok_enc.encode(self.input_accumulator)
         toks.append(self.eot_token)
+
+        # DEBUG:
         try:
             eot_ix = toks.index(self.eot_token)
         except ValueError:
             eot_ix = None
-        logging.debug(f"ACTokCompressor.flush {self=} {toks=} {eot_ix=}")
+        logging.info(f"ACTokCompressor.flush {self=} {toks=} {eot_ix=}")
+
+        if self.debug_save_toks:
+            self.toks.append(toks)
         self.bits_accumulator.extend(list(self.a2b.bits(toks, stop=True)))
 
         if not self.header_sent:
@@ -141,7 +196,7 @@ class ACTokCompressor:
 class ACTokDecompressor:
     """A tok decompressor"""
 
-    def __init__(self, encoding_name="gpt2"):
+    def __init__(self, encoding_name="gpt2",save_toks=False):
         logging.debug(f"ACTokDecompressor.__init__({encoding_name=})")
         if not isinstance(encoding_name, (str, bytes)):
             raise TypeError(f"encoding name is a {type(encoding_name)} want string")
@@ -154,6 +209,10 @@ class ACTokDecompressor:
         self.dtype = np.dtype('<u2')
         self._restart()
 
+        self.debug_save_toks = save_toks
+        if self.debug_save_toks:
+            self.toks = []
+
     def _restart(self):
         self.n_bytes_ingested = 0
         self.header_seen = False
@@ -163,15 +222,6 @@ class ACTokDecompressor:
         self._restart_AC()
         self._eos = False
         self.state = "Expecting header"
-        r"""States:
-* Expecting header
-* Ingesting header
-* Header accepted / rejected
-* Expecting data or footer
-* Ingesting data
-* Ingesting footer
-* Footer accepted / rejected        
-"""
 
     def _restart_AC(self):
         self.predictor.restart()
@@ -179,7 +229,6 @@ class ACTokDecompressor:
 
 
     def __repr__(self):
-        #return f"decomp({' H'[self.header_seen]}{' S'[self._eos]}{' F'[self.eof]},{len(self.unused_data)=}({self.unused_data[:4]},{len(self.token_buffer)=}({self.token_buffer[:4]}...{self.token_buffer[-4:]})) -> {len(self.output_buffer)}({self.output_buffer[:4]}...{self.output_buffer[-4:]}),{self.n_bytes_ingested})"
         return f"decomp({self.state=} {self.needs_input=}, {self._eos=} {self.eof=},{len(self.unused_data)=}({self.unused_data[:4]}),{len(self.token_buffer)=}({self.token_buffer[:4]}...{self.token_buffer[-4:]})) -> {len(self.output_buffer)}({self.output_buffer[:4]}...{self.output_buffer[-4:]}),{self.n_bytes_ingested})"
         
     @property
@@ -187,7 +236,6 @@ class ACTokDecompressor:
         return len(self.output_buffer) == 0 \
             and self.state not in ("Expecting footer", "Footer good")
             
-
     @property
     def eof(self):
         # return False
@@ -229,6 +277,8 @@ class ACTokDecompressor:
 
         if self.state == "Expecting data or footer":
             new_toks, n_bits = tokens_to_stop_with_bits_consumed(self.b2a, self.unused_data, self.eot_token)
+            if self.debug_save_toks:
+                self.toks.append(new_toks)
             try:
                 eot_ix = new_toks.index(self.eot_token)
             except ValueError:
@@ -236,10 +286,12 @@ class ACTokDecompressor:
             logging.debug(f"ACTokDecompressor.decompress {self} {eot_ix=}")
             self.unused_data = self.unused_data[(n_bits+7)//8:] # If we used any bits from that last byte we skip
             if new_toks and new_toks[-1] == self.eot_token:
-                logging.debug(f"ACTokDecompressor.decompress hit eot token")
+                logging.info(f"ACTokDecompressor.decompress hit eot token")
                 assert new_toks.pop() == self.eot_token
                 self.state = "Expecting footer"
+            logging.info(f"ACTokDecompressor.decompress {self} {eot_ix=}")
             self.token_buffer.extend(new_toks)
+            logging.info(f"ACTokDecompressor.decompress {self} {eot_ix=}")
             logging.debug(f"ACTokDecompressor.decompress {self=}")
 
             # Now turn tokens into text in output buffer
@@ -315,6 +367,7 @@ def bits_to_bytes(bitstream: List[int]): #-> Tuple(bytearray, List[int]):
 
     # Convert the list to a NumPy array
     bit_array = np.array(bitstream, dtype='uint8')
+    #assert np.all((bit_array >= 0) & (bit_array <= 1)), "Some bits in call to bits_to_bytes were improper"
 
     if len(bit_array) % 8 != 0:
         raise ValueError("Length of bitstream should be a multiple of 8")
@@ -330,7 +383,7 @@ def bits_to_bytes(bitstream: List[int]): #-> Tuple(bytearray, List[int]):
 
     return byte_array, tail
 
-# Chat4:
+# Chat4. (I bet there's a numpy way that's faster)
 def bytes_to_bits(byte_data):
     bitstream = []
 
