@@ -202,10 +202,12 @@ def cd_char_at_a_time_test(text):
     assert text == decompressed
 
     
-def test_cd_caat(medium_text):
+def test_cd_caat_brief():
     cd_char_at_a_time_test("")
     cd_char_at_a_time_test("Hi!")
     cd_char_at_a_time_test("The quick brown fox jumped over the lazy dogs.\n")
+
+def test_cd_caat_medium(medium_text):
     cd_char_at_a_time_test(medium_text)
 
 
@@ -322,6 +324,7 @@ def like_tlacz_write_read_with_pathlike_file_test(input_data):
     # assert isinstance(f.name, str)
 
 
+@pytest.mark.skip(reason="atok_compressor only does a single stream")
 def test_like_tlacz_multi_stream_ordering():
     # Test the ordering of streams when reading a multi-stream archive.
     data1 = b"foo" * 1000

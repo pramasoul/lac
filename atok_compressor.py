@@ -271,6 +271,7 @@ class ACTokDecompressor:
         self.n_bytes_ingested += len(rawblock)
         
         # The state machine
+        #while self.unused_data: # adds complexity handled by higher levels already
         if self.state == "Expecting header":
             if self.check_for_header_and_process():
                 self.state = "Expecting data or footer"
