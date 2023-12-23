@@ -15,22 +15,17 @@ import lac
 from builtins import open as _builtin_open
 import io
 import os
+import psutil
 import sys
 import _compression
 
-# from _bz2 import BZ2Compressor as LacCompressor
-# from _bz2 import BZ2Decompressor as LacDecompressor
-# from fake_compressor import FakeCompressor as LacCompressor
-# from fake_compressor import FakeDecompressor as LacDecompressor
-# from tok_compressor import TokCompressor as LacCompressor
-# from tok_compressor import TokDecompressor as LacDecompressor
-from atok_compressor import ACTokCompressor as LacCompressor
-from atok_compressor import ACTokDecompressor as LacDecompressor
+from lactok_compressor import LACTokCompressor as LacCompressor
+from lactok_compressor import LACTokDecompressor as LacDecompressor
 
-_MODE_CLOSED   = 0
-_MODE_READ     = 1
+_MODE_CLOSED = 0
+_MODE_READ = 1
 # Value 2 no longer used
-_MODE_WRITE    = 3
+_MODE_WRITE = 3
 
 
 class LacFile(_compression.BaseStream):
@@ -99,8 +94,9 @@ class LacFile(_compression.BaseStream):
             raise TypeError("filename must be a str, bytes, file or PathLike object")
 
         if self._mode == _MODE_READ:
-            raw = _compression.DecompressReader(self._fp,
-                                                LacDecompressor, trailing_error=OSError)
+            raw = _compression.DecompressReader(
+                self._fp, LacDecompressor, trailing_error=OSError
+            )
             self._buffer = io.BufferedReader(raw)
         else:
             self._pos = 0
@@ -279,8 +275,9 @@ class LacFile(_compression.BaseStream):
         return self._pos
 
 
-def open(filename, mode="rb", compresslevel=9,
-         encoding=None, errors=None, newline=None):
+def open(
+    filename, mode="rb", compresslevel=9, encoding=None, errors=None, newline=None
+):
     """Open a bzip2-compressed file in binary or text mode.
 
     The filename argument can be an actual filename (a str, bytes, or
@@ -349,10 +346,12 @@ def decompress(data):
                 raise  # Error on the first iteration; bail out.
         results.append(res)
         if not decomp.eof:
-            raise ValueError("Compressed data ended before the "
-                             "end-of-stream marker was reached")
+            raise ValueError(
+                "Compressed data ended before the " "end-of-stream marker was reached"
+            )
         data = decomp.unused_data
     return b"".join(results)
+
 
 # Following taken from Lib/gzip.py and adapted
 # gzip.py says at the top:
@@ -362,18 +361,49 @@ _COMPRESS_LEVEL_FAST = 1
 _COMPRESS_LEVEL_TRADEOFF = 6
 _COMPRESS_LEVEL_BEST = 9
 
-def main():
-    from argparse import ArgumentParser
-    parser = ArgumentParser(description=
-        "A simple command line interface for the lac module: act like gzip, "
-        "but do not delete the input file.")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument('--fast', action='store_true', help='compress faster')
-    group.add_argument('--best', action='store_true', help='compress better')
-    group.add_argument("-d", "--decompress", action="store_true",
-                        help="decompress")
 
-    parser.add_argument("args", nargs="*", default=["-"], metavar='file')
+def main():
+    from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+    parser = ArgumentParser(
+        description="A simple command line interface for the lac module: act like gzip, "
+        "but do not delete the input file.",
+        formatter_class=ArgumentDefaultsHelpFormatter,
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--fast", action="store_true", help="compress faster")
+    group.add_argument("--best", action="store_true", help="compress better")
+    group.add_argument("-d", "--decompress", action="store_true", help="decompress")
+
+    parser.add_argument("args", nargs="*", default=["-"], metavar="file")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help="device to run the model, e.g 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        # default=4,
+        default=psutil.cpu_count(logical=False),
+        help="number of threads to use if device is cpu",
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        type=str,
+        default="internal",
+        help="model to use for prediction",
+    )
+    parser.add_argument(
+        "-T", "--temperature", type=float, default=1.0, help="model's logits scaling"
+    )
+    parser.add_argument(
+        "-v", "--verbose", default=0, action="count", help="verbosity about internals"
+    )
+    parser.add_argument("-q", "--quiet", action="store_true", help="work quietly")
+
     args = parser.parse_args()
 
     compresslevel = _COMPRESS_LEVEL_TRADEOFF
@@ -385,18 +415,22 @@ def main():
     for arg in args.args:
         if args.decompress:
             if arg == "-":
-                f = LacFile(filename="", mode="rb", fileobj=sys.stdin.buffer)
+                # f = LacFile(filename="", mode="rb", fileobj=sys.stdin.buffer)
+                f = LacFile(sys.stdin.buffer)
                 g = sys.stdout.buffer
             else:
                 if arg[-5:] != ".lacz":
                     sys.exit(f"filename doesn't end in .lacz: {arg!r}")
                 f = open(arg, "rb")
-                g = _builtin_open(arg[:-3], "wb")
+                g = _builtin_open(arg[:-5], "wb")
         else:
             if arg == "-":
                 f = sys.stdin.buffer
-                g = LacFile(filename="", mode="wb", fileobj=sys.stdout.buffer,
-                             compresslevel=compresslevel)
+                g = LacFile(
+                    sys.stdout.buffer,
+                    mode="wb",
+                    compresslevel=compresslevel,
+                )
             else:
                 f = _builtin_open(arg, "rb")
                 g = open(arg + ".lacz", "wb")
@@ -410,5 +444,6 @@ def main():
         if f is not sys.stdin.buffer:
             f.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
