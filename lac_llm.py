@@ -111,7 +111,7 @@ def get_header_and_advance(f):
     return version_bytes, versions
 
 
-def provide_model(args):
+def provide_model(model_name="internal", device="cpu", threads=1, verbose=False):
     r"""
     HACKED by TAS
     After Karpathy
@@ -122,14 +122,14 @@ def provide_model(args):
         #"gpt2"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
         # (they are `{'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}`)
     )
-    init_from = (args.model, "resume")[args.model == "internal"]
+    init_from = (model_name, "resume")[model_name == "internal"]
     ckpt_path = "ckpt-0600.pt"  # HACK to allow setting by configurator.py
     start = "\n"  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
     temperature = (
         1.0  # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
     )
     seed = 1337
-    device = args.device  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
+    #device = args.device  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
     dtype = (
         "bfloat16"
         if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -143,7 +143,7 @@ def provide_model(args):
     #     logging.debug(f"provide_model: {k} = {v}")
     #     exec(f"{k} = {v}")
 
-    torch.set_num_threads(args.threads)
+    torch.set_num_threads(threads)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
@@ -157,7 +157,7 @@ def provide_model(args):
 
     # model
     if init_from == "resume":
-        args.verbose and print(f"ckpt_path {ckpt_path}, device {device}")
+        verbose and print(f"ckpt_path {ckpt_path}, device {device}")
         checkpoint = torch.load(ckpt_path, map_location=device)
         gptconf = GPTConfig(**checkpoint["model_args"])
         model = GPT(gptconf)
@@ -254,14 +254,19 @@ class CountingPredictionService(PredictionService):
 
 
 class LLMPredictionService(PredictionService):
-    def __init__(self, llm_predictor):
+    def __init__(self, llm_predictor, idx=torch.tensor([[198]])):
         self.p = llm_predictor
+        self.idx = idx.to(self.p.device)
 
     def accept(self, tok):
-        pass
+        assert tok < self.size
+        self.idx = torch.cat((self.idx, torch.tensor([[tok]]).to(self.idx.device)), 1)
 
+    @property
     def probabilities(self):
-        pass
+        probs = self.p(self.idx)
+        self.size = probs.size(0)
+        return probs
 
 
 
@@ -270,8 +275,11 @@ class LLMPredictor:
         self.model = model
         self.ctx = ctx
         self.temperature = temperature
+        self.device = model.lm_head.weight.device
 
     def __call__(self, idx):
+        idx = idx.to(self.device)
+        assert idx.device == self.device
         with torch.no_grad():
             with self.ctx:
                 # if the sequence context is growing too long we must crop it at block_size
@@ -281,6 +289,7 @@ class LLMPredictor:
                     else idx[:, -self.model.config.block_size :]
                 )
                 # forward the model to get the logits for the index in the sequence
+                assert idx_cond.device == self.device
                 logits, _ = self.model(idx_cond)
                 # pluck the logits at the final step and scale by desired temperature
                 logits = logits[:, -1, :] / self.temperature
@@ -309,6 +318,8 @@ if False:
     args.verbose and print(f"<|endoftext|> is {eot_token}")
 
 
+if True:
+    device = "cuda:3"
     device_type = (
         "cuda" if "cuda" in device else "cpu"
     )  # for later use in torch.autocast
@@ -324,7 +335,7 @@ if False:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    model, dtype, idx = provide_model(args)
+    model, dtype, idx = provide_model(device=device, threads=16)
     ptdtype = {
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
@@ -336,6 +347,8 @@ if False:
         else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
     )
 
+
+if False:
     # Common to both compression and decompression, we operate the model in prediction mode
     predictor = PDFPredictor(model, ctx, temperature)
     while not sampler.compress_done and not sampler.decompress_done:
@@ -344,3 +357,9 @@ if False:
         idx_next = torch.tensor([[actual]]).to(device)
         # append sampled index to the running sequence and continue
         idx = torch.cat((idx, idx_next), dim=1)
+
+
+def provide_prediction_service():
+    lp = LLMPredictor(model, ctx)
+    lps = LLMPredictionService(lp, idx)
+    return lps

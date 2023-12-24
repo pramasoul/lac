@@ -4,6 +4,7 @@ import logging
 import sys
 
 import numpy as np
+import torch
 
 import pytest
 
@@ -17,6 +18,7 @@ from unittest.mock import mock_open
 #import tok_compressor as tc
 #import lactok_compressor as latc
 from lac_llm import FlatPredictionService, CountingPredictionService
+import lac_llm as ll
 
 
 # Configure logging
@@ -92,7 +94,116 @@ def test_write_file(mocker):
     mock_write().write.assert_called_once_with(data_to_write)
 
 
+def test_llm_predictor():
+    lp = ll.LLMPredictor(ll.model, ll.ctx)
+    assert np.allclose(lp(torch.tensor([[42]])), lp(torch.tensor([[42]])))
+    assert not np.allclose(lp(torch.tensor([[42]])), lp(torch.tensor([[137]])))
+    lp2 = ll.LLMPredictor(ll.model, ll.ctx)
+    assert np.allclose(lp(torch.tensor([[42]])), lp2(torch.tensor([[42]])))
+    assert np.allclose(lp(torch.tensor([[137]])), lp2(torch.tensor([[137]])))
+    assert np.allclose(lp(torch.tensor([[137, 196]])), lp2(torch.tensor([[137, 196]])))
+    assert not np.allclose(lp(torch.tensor([[42, 137, 196]])), lp(torch.tensor([[42, 137, 196, 777]])))
 
+
+def test__llm_prediction_service_1():
+    lp = ll.LLMPredictor(ll.model, ll.ctx)
+    lps = ll.LLMPredictionService(lp, ll.idx)
+    p = lps.probabilities
+    tk_log = []
+    tk = torch.topk(p, 3)
+    tk_log.append(tk)
+    lps.accept(tk.indices[1])
+    p = lps.probabilities
+    tk = torch.topk(p, 3)
+    tk_log.append(tk)
+    lps.accept(tk.indices[1])
+    p = lps.probabilities
+    tk = torch.topk(p, 3)
+    tk_log.append(tk)
+    lps.accept(tk.indices[1])
+    assert lps.idx.tolist() == [[198, 464, 749, 2219]]
+
+def test_llm_prediction_service_2():
+    lps = ll.provide_prediction_service()
+    p = lps.probabilities
+    tk_log = []
+    tk = torch.topk(p, 3)
+    tk_log.append(tk)
+    lps.accept(tk.indices[1])
+    p = lps.probabilities
+    tk = torch.topk(p, 3)
+    tk_log.append(tk)
+    lps.accept(tk.indices[1])
+    p = lps.probabilities
+    tk = torch.topk(p, 3)
+    tk_log.append(tk)
+    lps.accept(tk.indices[1])
+    assert lps.idx.tolist() == [[198, 464, 749, 2219]]
+
+
+def test_llm_prediction_service_multi_1():
+    # two different prediction services
+    lps1 = ll.provide_prediction_service()
+    lps2 = ll.provide_prediction_service()
+    assert lps1 != lps2
+
+    # Newborn twins
+    p1 = lps1.probabilities
+    p2 = lps2.probabilities
+    assert p1.allclose(p2)
+
+    # First service, round 1
+    tk = torch.topk(p1, 3)
+    t = tk.indices[1]           # 2nd most probable
+    assert t == 464
+    lps1.accept(t)
+    # Acceptance changes probabilities
+    prev_p1 = p1
+    p1 = lps1.probabilities
+    assert not p1.allclose(prev_p1)
+
+    # Second service, do same
+    tk = torch.topk(p2, 3)
+    t = tk.indices[1]           # 2nd most probable
+    assert t == 464
+    lps2.accept(t)
+    p2 = lps2.probabilities
+
+    # Second service, round 2
+    assert p2.allclose(p1)      # Same path, expect same probabilities
+    tk = torch.topk(p2, 3)
+    t = tk.indices[0]           # most probable
+    assert t == 717
+    lps2.accept(t)
+    p2 = lps2.probabilities
+
+    # First service, round 2
+    assert not p2.allclose(p1)  # Different path (number of steps), expect different probabilities
+    tk = torch.topk(p2, 3)
+    t = tk.indices[2]           # 3rd most probable
+    assert t == 286
+    lps1.accept(t)
+    p1 = lps1.probabilities
+
+    assert not p1.allclose(p2)
+
+
+
+
+@pytest.mark.skip(reason="unfinished")
+def test_llm_prediction_service_multi_2():
+    n = 3
+    lpss = [ll.provide_prediction_service() for i in range(n)]
+    tk_log = []
+    for i in range(4):
+        tken = []
+        for lps in lpss:
+            p = lps.probabilities
+            tk = torch.topk(p, 3)
+            tken.apppend(dk)
+            lps.accept(tk.indices[1])
+
+    assert lps.idx.tolist() == [[198, 464, 749, 2219]]
 
 
 def test_flat_prediction_service():
@@ -113,7 +224,6 @@ def test_counting_prediction_service():
         assert ps.probabilities[n-1] == 1.01
         ps.restart()
         assert np.allclose(np.sum(ps.probabilities), n * 0.01)
-
 
         
 

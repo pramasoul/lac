@@ -11,7 +11,7 @@ import tiktoken
 
 from typing import List, Tuple
 
-from lac_llm import provide_model
+from lac_llm import provide_model, provide_prediction_service
 from lac_llm import PredictionService, FlatPredictionService, CountingPredictionService
 from ac2_for_z import PDFPredictor, A_to_bin, A_from_bin
 
@@ -63,7 +63,8 @@ class LACTokCompressor:
         if self.tok_mode == "buffer minimum for correct":
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
+        #self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
+        self.predictor = TokPredictor(self.eot_token, provide_prediction_service())
         # moved self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
         logging.debug(f"LACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
@@ -202,7 +203,8 @@ class LACTokDecompressor:
         self.encoding_name = encoding_name
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
+        #self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
+        self.predictor = TokPredictor(self.eot_token, provide_prediction_service())
         self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
         logging.debug(f"LACTokDecompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.dtype = np.dtype('<u2')
