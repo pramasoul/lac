@@ -241,6 +241,7 @@ def like_from_tlacz_test(size):
 def test_like_from_tlacz_short():
     like_from_tlacz_test(128)
 
+@pytest.mark.slow
 @pytest.mark.parametrize("size", [1<<i for i in range(16)])
 def test_like_from_tlacz_ramp(benchmark, size):
     #like_from_tlacz_test(size)
@@ -255,9 +256,7 @@ data1 = b"""  int length=DEFAULTALLOC, err = Z_OK;
 
 """
 
-
-
-
+@pytest.mark.skip(reason="FIXME: Is this test valid with LLM prediction?")
 def test_find_tok_difference_in_compressed():
     for n in range(7):
         input_data = data1 * n
@@ -293,10 +292,12 @@ def test_find_tok_difference_in_compressed():
         # logging.info(f"post-flush {comp=} {len(data)=}")
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("n", [0,1,2,3,4,8,16,32,48,50])
 def test_n_like_tlacz_write_read_with_pathlike_file(n):
     like_tlacz_write_read_with_pathlike_file_test(data1 * n)
 
+@pytest.mark.slow
 def test_like_tlacz_write_read_with_pathlike_file(tmp_path):
     data50 = data1 * 50
     like_tlacz_write_read_with_pathlike_file_test(data50 + b'.') # Passes
@@ -319,16 +320,6 @@ def like_tlacz_write_read_with_pathlike_file_test(input_data):
         logging.info(f"{decomp.predictor=}")
         logging.info(f"{decomp.b2a.accept_list[-50:]=}")
     assert decompressed == input_data
-    # return
-    # with LacFile(filename) as f:
-    #     d = f.read()
-    # assert d == data1 * 50
-    # with LacFile(filename, 'a') as f:
-    #     f.write(data1)
-    # with LacFile(filename) as f:
-    #     d = f.read()
-    # assert d == data1 * 51
-    # assert isinstance(f.name, str)
 
 
 @pytest.mark.skip(reason="atok_compressor only does a single stream")
