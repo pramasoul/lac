@@ -94,20 +94,27 @@ def test_write_file(mocker):
     mock_write().write.assert_called_once_with(data_to_write)
 
 
-def test_llm_predictor():
-    lp = ll.LLMPredictor(ll.model, ll.ctx)
+@pytest.fixture(scope="session")
+def model_ctx_idx():
+    model, ctx, idx = ll.provide_model(device="cuda:2")
+    return model, ctx, idx
+
+def test_llm_predictor(model_ctx_idx):
+    model, ctx, idx = model_ctx_idx
+    lp = ll.LLMPredictor(model, ctx)
     assert np.allclose(lp(torch.tensor([[42]])), lp(torch.tensor([[42]])))
     assert not np.allclose(lp(torch.tensor([[42]])), lp(torch.tensor([[137]])))
-    lp2 = ll.LLMPredictor(ll.model, ll.ctx)
+    lp2 = ll.LLMPredictor(model, ctx)
     assert np.allclose(lp(torch.tensor([[42]])), lp2(torch.tensor([[42]])))
     assert np.allclose(lp(torch.tensor([[137]])), lp2(torch.tensor([[137]])))
     assert np.allclose(lp(torch.tensor([[137, 196]])), lp2(torch.tensor([[137, 196]])))
     assert not np.allclose(lp(torch.tensor([[42, 137, 196]])), lp(torch.tensor([[42, 137, 196, 777]])))
 
 
-def test__llm_prediction_service_1():
-    lp = ll.LLMPredictor(ll.model, ll.ctx)
-    lps = ll.LLMPredictionService(lp, ll.idx)
+def test_llm_prediction_service_1(model_ctx_idx):
+    model, ctx, idx = model_ctx_idx
+    lp = ll.LLMPredictor(model, ctx)
+    lps = ll.LLMPredictionService(lp, idx)
     p = lps.probabilities
     tk_log = []
     tk = torch.topk(p, 3)
@@ -123,8 +130,9 @@ def test__llm_prediction_service_1():
     lps.accept(tk.indices[1])
     assert lps.idx.tolist() == [[198, 464, 749, 2219]]
 
-def test_llm_prediction_service_2():
-    lps = ll.provide_prediction_service()
+def test_llm_prediction_service_2(model_ctx_idx):
+    #model, ctx, idx = model_ctx_idx
+    lps = ll.provide_prediction_service("internal", "cuda:2")
     p = lps.probabilities
     tk_log = []
     tk = torch.topk(p, 3)
@@ -143,8 +151,8 @@ def test_llm_prediction_service_2():
 
 def test_llm_prediction_service_multi_1():
     # two different prediction services
-    lps1 = ll.provide_prediction_service()
-    lps2 = ll.provide_prediction_service()
+    lps1 = ll.provide_prediction_service("internal", "cuda:2")
+    lps2 = ll.provide_prediction_service("internal", "cuda:2")
     assert lps1 != lps2
 
     # Newborn twins

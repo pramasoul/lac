@@ -143,17 +143,39 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
     #     logging.debug(f"provide_model: {k} = {v}")
     #     exec(f"{k} = {v}")
 
-    torch.set_num_threads(threads)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
-    torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
+    device = "cuda:3"
+    device_type = (
+        "cuda" if "cuda" in device else "cpu"
+    )  # for later use in torch.autocast
+
+    # Attempt determinism
+    torch.use_deterministic_algorithms(True)
+    # https://docs.nvidia.com/cuda/cublas/index.html#results-reproducibility
+    # set a debug environment variable CUBLAS_WORKSPACE_CONFIG to :16:8
+    # (may limit overall performance) or :4096:8 (will increase library
+    # footprint in GPU memory by approximately 24MiB).
+    if device_type == "cuda":
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
     ptdtype = {
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
         "float16": torch.float16,
     }[dtype]
-    # ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
+
+    ctx = (
+        nullcontext()
+        if device_type == "cpu"
+        else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
+    )
+
+    torch.set_num_threads(threads)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
+    torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
 
     # model
     if init_from == "resume":
@@ -207,8 +229,11 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
     start_ids = encode(start)
     x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
 
-    return model, dtype, x
+    return model, ctx, x
 
+
+################################################################
+# Prediction service
 
 
 class PredictionService:
@@ -269,7 +294,6 @@ class LLMPredictionService(PredictionService):
         return probs
 
 
-
 class LLMPredictor:
     def __init__(self, model, ctx, temperature=1.0):
         self.model = model
@@ -298,6 +322,42 @@ class LLMPredictor:
         return probabilities.cpu()
 
 
+
+class LLMPredictionServiceProvider:
+    def __init__(self, model_provider, threads=1):
+        self.model_provider = model_provider
+        self.threads = threads
+        self._cache = {}
+
+    def __call__(self, model_name, device, threads):
+        k = (model_name, device)
+        if k in self._cache:
+            lp, idx = self._cache[k]
+        else:
+            model, ctx, idx = self.model_provider(device=device, threads=threads)
+            lp = LLMPredictor(model, ctx)
+            self._cache[k] = (lp, idx)
+        return LLMPredictionService(lp, idx)
+        
+
+
+device = "cuda:2"
+
+# model, ctx, idx = provide_model(device=device, threads=16)
+# def provide_prediction_service(device="cpu"):
+#     lp = LLMPredictor(model, ctx)
+#     lps = LLMPredictionService(lp, idx)
+#     return lps
+
+llm_psp = LLMPredictionServiceProvider(provide_model, 1)
+def provide_prediction_service(model_name, device="cpu", threads=1):
+    return llm_psp(model_name, device, threads)
+
+#
+################################################################
+
+
+
 if False:
 
     if args.decompress and args.format in ["auto", "bighead"]:
@@ -318,7 +378,7 @@ if False:
     args.verbose and print(f"<|endoftext|> is {eot_token}")
 
 
-if True:
+if False:
     device = "cuda:3"
     device_type = (
         "cuda" if "cuda" in device else "cpu"
@@ -346,20 +406,3 @@ if True:
         if device_type == "cpu"
         else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
     )
-
-
-if False:
-    # Common to both compression and decompression, we operate the model in prediction mode
-    predictor = PDFPredictor(model, ctx, temperature)
-    while not sampler.compress_done and not sampler.decompress_done:
-        probabilities = predictor(idx)
-        actual = sampler.sample(probabilities)
-        idx_next = torch.tensor([[actual]]).to(device)
-        # append sampled index to the running sequence and continue
-        idx = torch.cat((idx, idx_next), dim=1)
-
-
-def provide_prediction_service():
-    lp = LLMPredictor(model, ctx)
-    lps = LLMPredictionService(lp, idx)
-    return lps
