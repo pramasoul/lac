@@ -1,7 +1,7 @@
-"""Interface to the lac compression library.
-
-This module provides a file interface, classes for incremental
-(de)compression, and functions for one-shot (de)compression.
+#!/usr/bin/env python
+"""
+Compress using a trained model as a predictor
+The name ``lac'' is meant to suggest "LLM Arithmetic Coder"
 """
 
 __author__ = "Tom Soulanille <soul@prama.com>"
@@ -376,6 +376,8 @@ def main():
     group.add_argument("-d", "--decompress", action="store_true", help="decompress")
 
     parser.add_argument("args", nargs="*", default=["-"], metavar="file")
+    parser.add_argument("-c", "--stdout", "--to-stdout", action="store_true",
+                        help="Write output on standard output; keep input files unchanged")
     parser.add_argument(
         "--device",
         type=str,
@@ -422,7 +424,10 @@ def main():
                 if arg[-5:] != ".lacz":
                     sys.exit(f"filename doesn't end in .lacz: {arg!r}")
                 f = open(arg, "rb")
-                g = _builtin_open(arg[:-5], "wb")
+                if args.stdout:
+                    g = sys.stdout.buffer
+                else:
+                    g = _builtin_open(arg[:-5], "wb")
         else:
             if arg == "-":
                 f = sys.stdin.buffer
@@ -433,7 +438,14 @@ def main():
                 )
             else:
                 f = _builtin_open(arg, "rb")
-                g = open(arg + ".lacz", "wb")
+                if args.stdout:
+                    g = LacFile(
+                        sys.stdout.buffer,
+                        mode="wb",
+                        compresslevel=compresslevel,
+                    )
+                else:
+                    g = open(arg + ".lacz", "wb")
         while True:
             chunk = f.read(io.DEFAULT_BUFFER_SIZE)
             if not chunk:
