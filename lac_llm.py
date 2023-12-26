@@ -282,10 +282,21 @@ class LLMPredictionService(PredictionService):
     def __init__(self, llm_predictor, idx=torch.tensor([[198]])):
         self.p = llm_predictor
         self.idx = idx.to(self.p.device)
+        self._temp_idx = None
 
     def accept(self, tok):
-        assert tok < self.size
-        self.idx = torch.cat((self.idx, torch.tensor([[tok]]).to(self.idx.device)), 1)
+        assert tok < self.p.model.config.vocab_size
+        if self.idx.size(1) < self.p.model.config.block_size:
+            self.idx = torch.cat((self.idx, torch.tensor([[tok]]).to(self.idx.device)), 1)
+        else:
+            if self._temp_idx is None:
+                self._temp_idx = self.idx.clone()
+            t = self._temp_idx
+            # Shift all elements down, losing the first
+            t[..., :-1] = self.idx[..., 1:]
+            # Replace the last element with the new token
+            t[..., -1] = tok
+            self.idx.copy_(t)   # Should ping-pong between them instead?
 
     @property
     def probabilities(self):

@@ -337,7 +337,7 @@ def BIG_TEXT():
 
 @pytest.fixture(scope="session")
 def BIG_DATA(BIG_TEXT):
-    BIG_DATA = lac.compress(BIG_TEXT, compresslevel=1)
+    BIG_DATA = lac.compress(BIG_TEXT)
     return BIG_DATA
 
 
@@ -609,8 +609,8 @@ class Test_LacFile:
 
 
     def test_write_non_default_compress_level(self, filename, TEXT):
-        expected = lac.compress(TEXT, compresslevel=5)
-        with LacFile(filename, "w", compresslevel=5) as bz2f:
+        expected = lac.compress(TEXT)
+        with LacFile(filename, "w") as bz2f:
             bz2f.write(TEXT)
         with open(filename, "rb") as f:
             assert f.read() == expected

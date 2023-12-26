@@ -39,7 +39,7 @@ class LacFile(_compression.BaseStream):
     returned as bytes, and data to be written should be given as bytes.
     """
 
-    def __init__(self, filename, mode="r", *, compresslevel=9):
+    def __init__(self, filename, mode="r"):
         """Open a bzip2-compressed file.
 
         If filename is a str, bytes, or PathLike object, it gives the
@@ -68,15 +68,15 @@ class LacFile(_compression.BaseStream):
         elif mode in ("w", "wb"):
             mode = "wb"
             mode_code = _MODE_WRITE
-            self._compressor = LacCompressor(compresslevel)
+            self._compressor = LacCompressor()
         elif mode in ("x", "xb"):
             mode = "xb"
             mode_code = _MODE_WRITE
-            self._compressor = LacCompressor(compresslevel)
+            self._compressor = LacCompressor()
         elif mode in ("a", "ab"):
             mode = "ab"
             mode_code = _MODE_WRITE
-            self._compressor = LacCompressor(compresslevel)
+            self._compressor = LacCompressor()
         else:
             raise ValueError("Invalid mode: %r" % (mode,))
 
@@ -273,7 +273,7 @@ class LacFile(_compression.BaseStream):
 
 
 def open(
-    filename, mode="rb", compresslevel=9, encoding=None, errors=None, newline=None
+    filename, mode="rb", encoding=None, errors=None, newline=None
 ):
     """Open a bzip2-compressed file in binary or text mode.
 
@@ -306,7 +306,7 @@ def open(
             raise ValueError("Argument 'newline' not supported in binary mode")
 
     bz_mode = mode.replace("t", "")
-    binary_file = LacFile(filename, bz_mode, compresslevel=compresslevel)
+    binary_file = LacFile(filename, bz_mode)
 
     if "t" in mode:
         encoding = io.text_encoding(encoding)
@@ -315,14 +315,12 @@ def open(
         return binary_file
 
 
-def compress(data, compresslevel=9):
+def compress(data):
     """Compress a block of data.
-
-    compresslevel, if given, must be a number between 1 and 9.
 
     For incremental compression, use a LacCompressor object instead.
     """
-    comp = LacCompressor(compresslevel)
+    comp = LacCompressor()
     return comp.compress(data) + comp.flush()
 
 
@@ -401,11 +399,6 @@ def main():
 
     args = parser.parse_args()
 
-    compresslevel = _COMPRESS_LEVEL_TRADEOFF
-    if args.fast:
-        compresslevel = _COMPRESS_LEVEL_FAST
-    elif args.best:
-        compresslevel = _COMPRESS_LEVEL_BEST
 
     chunk_size = io.DEFAULT_BUFFER_SIZE
     stdout_chunk_size = 32      # FIXME: hangs if 20 or below (threshold undetermined)
@@ -432,7 +425,6 @@ def main():
                 g = LacFile(
                     sys.stdout.buffer,
                     mode="wb",
-                    compresslevel=compresslevel,
                 )
             else:
                 f = _builtin_open(arg, "rb")
@@ -440,7 +432,6 @@ def main():
                     g = LacFile(
                         sys.stdout.buffer,
                         mode="wb",
-                        compresslevel=compresslevel,
                     )
                 else:
                     g = open(arg + ".lacz", "wb")

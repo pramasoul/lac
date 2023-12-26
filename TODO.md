@@ -27,6 +27,10 @@
 * [ ] Make stdout flush often enough to see progress
   * [ ] Debug why too short stdout_chunk_size hangs. Is it footer decoding?
 
+## Robustness
+* [ ] Use `model.config` info e.g. GPTConfig(block_size=1024, vocab_size=50304,...)`
+* [ ] Make asserts have reasonable messages
+
 ## Format
 * [ ] Fix header to use lac's informative header
 * [ ] Make switch for one-bit header mode
@@ -39,13 +43,12 @@
 * [ ] Test with other models
 
 ## Lurking Trouble
-* [ ] Fix idx endless growth in prediction service
+* [x] Fix idx endless growth in prediction service
 
 ## Maintainability & Presentation
 * [ ] Map out the code structure
 * [ ] Refactor & consolidate
 * [ ] Sphinx document the code
-
 
 ## Features Development
 * [ ] Load models from HF or other sources
