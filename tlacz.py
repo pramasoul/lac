@@ -8,7 +8,7 @@ __author__ = "Tom Soulanille <soul@prama.com>"
 __homage__author__ = "Nadeem Vawda <nadeem.vawda@gmail.com>"
 
 # A shameless mill swap, with some chassis torch work, of python's
-# Lib/bz2.py by Nadeem Vawda
+# Lib/bz2.py by Nadeem Vawda. The features are his, the bugs mine.
 
 import lac
 
@@ -61,9 +61,6 @@ class LacFile(_compression.BaseStream):
         self._fp = None
         self._closefp = False
         self._mode = _MODE_CLOSED
-
-        if not (1 <= compresslevel <= 9):
-            raise ValueError("compresslevel must be between 1 and 9")
 
         if mode in ("", "r", "rb"):
             mode = "rb"
@@ -357,10 +354,6 @@ def decompress(data):
 # gzip.py says at the top:
 # based on Andrew Kuchling's minigzip.py distributed with the zlib module
 
-_COMPRESS_LEVEL_FAST = 1
-_COMPRESS_LEVEL_TRADEOFF = 6
-_COMPRESS_LEVEL_BEST = 9
-
 
 def main():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -414,18 +407,23 @@ def main():
     elif args.best:
         compresslevel = _COMPRESS_LEVEL_BEST
 
+    chunk_size = io.DEFAULT_BUFFER_SIZE
+    stdout_chunk_size = 32      # FIXME: hangs if 20 or below (threshold undetermined)
+
     for arg in args.args:
         if args.decompress:
             if arg == "-":
                 # f = LacFile(filename="", mode="rb", fileobj=sys.stdin.buffer)
                 f = LacFile(sys.stdin.buffer)
                 g = sys.stdout.buffer
+                chunk_size = stdout_chunk_size
             else:
                 if arg[-5:] != ".lacz":
                     sys.exit(f"filename doesn't end in .lacz: {arg!r}")
                 f = open(arg, "rb")
                 if args.stdout:
                     g = sys.stdout.buffer
+                    chunk_size = stdout_chunk_size
                 else:
                     g = _builtin_open(arg[:-5], "wb")
         else:
@@ -446,11 +444,14 @@ def main():
                     )
                 else:
                     g = open(arg + ".lacz", "wb")
+        sys.stderr.write(f"{chunk_size=}\n")
+        _compression.BUFFER_SIZE = chunk_size
         while True:
-            chunk = f.read(io.DEFAULT_BUFFER_SIZE)
+            chunk = f.read(chunk_size)
             if not chunk:
                 break
             g.write(chunk)
+            g.flush()
         if g is not sys.stdout.buffer:
             g.close()
         if f is not sys.stdin.buffer:

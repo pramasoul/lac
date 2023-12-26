@@ -133,11 +133,12 @@ def test_bits_to_bytes_to_bits():
 def test_compress_empty():
     c = latc.LACTokCompressor()
     compressed = c.compress("") + c.flush()
-    assert compressed == b"\xfe\xfe\xff\xffThat's all, folks!"
+    assert compressed == b"\xfe\xfe\xff\xc0That's all, folks!"
     
 @pytest.mark.compressed_data
 def test_decompress_empty():
-    compressed = b"\xfe\xfe\xff\xffThat's all, folks!"
+    #compressed = b"\xfe\xfe\xff\xffThat's all, folks!"
+    compressed = b"\xfe\xfe\xff\xc0That's all, folks!"
     d = latc.LACTokDecompressor()
     decompressed = d.decompress(compressed)
     assert decompressed == b""
@@ -242,6 +243,7 @@ def test_like_from_tlacz_short():
     like_from_tlacz_test(128)
 
 @pytest.mark.slow
+@pytest.mark.skip(reason="Not useful as a recurring test")
 @pytest.mark.parametrize("size", [1<<i for i in range(16)])
 def test_like_from_tlacz_ramp(benchmark, size):
     #like_from_tlacz_test(size)

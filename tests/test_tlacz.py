@@ -180,14 +180,6 @@ class Test_Outsiders:
             LacFile(os.devnull, "rx")
         with pytest.raises(ValueError):
             LacFile(os.devnull, "rbt")
-        with pytest.raises(ValueError):
-            LacFile(os.devnull, compresslevel=0)
-        with pytest.raises(ValueError):
-            LacFile(os.devnull, compresslevel=10)
-
-        # compresslevel is keyword-only
-        with pytest.raises(TypeError):
-            LacFile(os.devnull, "r", 3)
 
     @pytest.mark.compressed_data
     def test_read(self):
@@ -422,11 +414,6 @@ class Test_LacFile:
         pytest.raises(ValueError, LacFile, os.devnull, "z")
         pytest.raises(ValueError, LacFile, os.devnull, "rx")
         pytest.raises(ValueError, LacFile, os.devnull, "rbt")
-        pytest.raises(ValueError, LacFile, os.devnull, compresslevel=0)
-        pytest.raises(ValueError, LacFile, os.devnull, compresslevel=10)
-
-        # compresslevel is keyword-only
-        pytest.raises(TypeError, LacFile, os.devnull, "r", 3)
 
 
     @pytest.mark.compressed_data

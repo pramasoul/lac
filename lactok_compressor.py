@@ -53,19 +53,18 @@ class TokPredictor(PDFPredictor):
 class LACTokCompressor:
     """Arithmetic Coding tok compressor"""
 
-    def __init__(self, compression_level=9, encoding_name="gpt2", tok_mode="line-by-line", save_toks=False):
-        # FIXME: This is bz2-specific:
-        if compression_level < 0 or compression_level > 9:
-            raise TypeError
+    def __init__(self,
+                 encoding_name="gpt2",
+                 model_name="internal",
+                 tok_mode="line-by-line",
+                 save_toks=False):
         self.encoding_name = encoding_name
         self.tok_mode = tok_mode #DEBUG
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         if self.tok_mode == "buffer minimum for correct":
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        #self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
-        self.predictor = TokPredictor(self.eot_token, provide_prediction_service())
-        # moved self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
+        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name))
         logging.debug(f"LACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
         self.input_accumulator = ""
@@ -196,16 +195,17 @@ class LACTokCompressor:
 class LACTokDecompressor:
     """A tok decompressor"""
 
-    def __init__(self, encoding_name="gpt2",save_toks=False):
+    def __init__(self,
+                 encoding_name="gpt2",
+                 model_name="internal",
+                 save_toks=False):
         logging.debug(f"LACTokDecompressor.__init__({encoding_name=})")
         if not isinstance(encoding_name, (str, bytes)):
             raise TypeError(f"encoding name is a {type(encoding_name)} want string")
         self.encoding_name = encoding_name
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        #self.predictor = TokPredictor(self.eot_token, CountingPredictionService(self.eot_token+1))
-        self.predictor = TokPredictor(self.eot_token, provide_prediction_service())
-        self.predictor.set_cdf_from_pdf([1] * (self.eot_token + 1)) # FIXME: for initial debugging
+        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name))
         logging.debug(f"LACTokDecompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.dtype = np.dtype('<u2')
         self._restart()
