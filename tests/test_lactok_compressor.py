@@ -6,6 +6,7 @@
 import logging
 #import os
 #import pathlib
+import psutil
 import random
 import struct
 import sys
@@ -26,6 +27,25 @@ import tok_compressor as tc
 import lactok_compressor as latc
 from lac_llm import FlatPredictionService, CountingPredictionService
 
+
+# The test configurations to choose from (source-configured)
+# Thorough, and quite time-consuming:
+configurations = []
+for model_name in ["internal", "gpt2", "gpt2-medium"]:
+    for device in ["cpu", "cuda:3"]:
+        thread_list = [1]
+        if device == "cpu":
+            thread_list = [psutil.cpu_count(logical=False)]
+        for threads in thread_list:
+            configurations.append(
+                { "model_name": model_name,
+                  "device": device,
+                  "threads": threads,
+                }
+            )
+
+# Fastest configuration. Run this first, until you pass, then run thorough configuration
+configurations = [{"model_name": "internal", "device": "cuda:3", "threads": psutil.cpu_count(logical=False)}]
 
 # Configure logging
 logging.basicConfig(
@@ -99,6 +119,10 @@ def test_write_file(mocker):
     mock_write.assert_called_once_with("mock_file.txt", "w")
     mock_write().write.assert_called_once_with(data_to_write)
 
+
+################################################################
+# Tests
+
 def test_bytes_to_bits():
     y2b = latc.bytes_to_bits
     assert y2b(b'') == []
@@ -129,17 +153,55 @@ def test_bits_to_bytes_to_bits():
         assert b2y(y2b((b))) == (b, [])
 
 
+# LACT_args = { "model_name": "internal",
+#               "device": "cuda:3",
+#               "threads": psutil.cpu_count(logical=False),
+# }
+
+# @pytest.fixture
+# def LACTok_args():
+#     return LACT_args
+
+# def LTC(*args, **kwargs):
+#     return latc.LACTokCompressor(*args, **kwargs, **LACT_args)
+
+# def LTD(*args, **kwargs):
+#     return latc.LACTokDecompressor(*args, **kwargs, **LACT_args)
+
+
+logging.info(f"{configurations=}")
+
+@pytest.fixture(params=configurations)
+def lact_args(request):
+    return request.param
+
+def LTC(*args, **kwargs):
+    lact_args = kwargs.pop('lact_args', {})
+    return latc.LACTokCompressor(*args, **kwargs, **lact_args)
+
+def LTD(*args, **kwargs):
+    lact_args = kwargs.pop('lact_args', {})
+    return latc.LACTokDecompressor(*args, **kwargs, **lact_args)
+
+
 @pytest.mark.compressed_data
-def test_compress_empty():
-    c = latc.LACTokCompressor()
+def test_compress_empty(lact_args):
+    c = LTC(lact_args=lact_args)
     compressed = c.compress("") + c.flush()
-    assert compressed == b"\xfe\xfe\xff\xc0That's all, folks!"
+    #assert compressed == b"\xfe\xfe\xff\xc0That's all, folks!"
+    assert compressed.startswith(b"\xfe\xfe")
+    assert compressed.endswith(b"That's all, folks!")
+    assert compressed[2] == b"\xff"[0]
+    assert len(compressed) == 4 + len(b"That's all, folks!")
+
     
-@pytest.mark.compressed_data
-def test_decompress_empty():
+#@pytest.mark.compressed_data
+def test_decompress_empty(lact_args):
     #compressed = b"\xfe\xfe\xff\xffThat's all, folks!"
-    compressed = b"\xfe\xfe\xff\xc0That's all, folks!"
-    d = latc.LACTokDecompressor()
+    #compressed = b"\xfe\xfe\xff\xc0That's all, folks!"
+    c = LTC(lact_args=lact_args)
+    compressed = c.compress("") + c.flush()
+    d = LTD(lact_args=lact_args)
     decompressed = d.decompress(compressed)
     assert decompressed == b""
 
@@ -163,66 +225,68 @@ might want to use the technology, as what may seem "reasonable" for a
 company preparing a proprietary commercial software product may seem
 much less reasonable for a free software or open source project."""
 
-def compress_decompress_test(text):
-    c = latc.LACTokCompressor()
-    d = latc.LACTokDecompressor()
+def compress_decompress_test(text, lact_args):
+    c = LTC(lact_args=lact_args)
+    d = LTD(lact_args=lact_args)
     compressed = c.compress(text) + c.flush()
     decompressed = d.decompress(compressed)
     if type(text) is str: text = text.encode("utf8")
     assert text == decompressed
     
-def test_cd_short():
-    compress_decompress_test(b"")
-    compress_decompress_test(b"Hi!")
-    compress_decompress_test(b"Hi!Hi!")
-    compress_decompress_test(b"The quick brown fox, et al.")
+def test_cd_short(lact_args):
+    compress_decompress_test(b"", lact_args)
+    compress_decompress_test(b"Hi!", lact_args)
+    compress_decompress_test(b"Hi!Hi!", lact_args)
+    compress_decompress_test(b"The quick brown fox, et al.", lact_args)
 
-def test_cd_short_nl():
-    for c,d in ((tc.TokCompressor(),tc.TokDecompressor()), (latc.LACTokCompressor(),latc.LACTokDecompressor())):
+def test_cd_short_nl(lact_args):
+    for c,d in ((tc.TokCompressor(), tc.TokDecompressor()),
+                (LTC(lact_args=lact_args),LTD(lact_args=lact_args))):
         text = b"\n"
         zbody = c.compress(text)
         ztail = c.flush()
         reconstructed = d.decompress(zbody + ztail)
         assert text == reconstructed
 
-def test_cd_short_2nl():
-    for c,d in ((tc.TokCompressor(),tc.TokDecompressor()), (latc.LACTokCompressor(),latc.LACTokDecompressor())):
+def test_cd_short_2nl(lact_args):
+    for c,d in ((tc.TokCompressor(),tc.TokDecompressor()),
+                (LTC(lact_args=lact_args),LTD(lact_args=lact_args))):
         text = b"\n\n"
         zbody = c.compress(text)
         ztail = c.flush()
         reconstructed = d.decompress(zbody + ztail)
         assert text == reconstructed
 
-def test_cd_brief():
-    compress_decompress_test(b"The quick brown fox jumped over the lazy dogs.\n")
+def test_cd_brief(lact_args):
+    compress_decompress_test(b"The quick brown fox jumped over the lazy dogs.\n", lact_args)
 
-def test_cd_medium(medium_text):
-    compress_decompress_test(medium_text)
+def test_cd_medium(medium_text, lact_args):
+    compress_decompress_test(medium_text, lact_args)
 
-def cd_char_at_a_time_test(text):
-    comp = latc.LACTokCompressor()
+def cd_char_at_a_time_test(text, lact_args):
+    comp = LTC(lact_args=lact_args)
     compressed = b"".join(comp.compress(char) for char in text) + comp.flush()
-    decompressed = latc.LACTokDecompressor().decompress(compressed)
+    decompressed = LTD(lact_args=lact_args).decompress(compressed)
     if type(text) is str: text = text.encode("utf8")
     assert text == decompressed
-    decomp = latc.LACTokDecompressor()
+    decomp = LTD(lact_args=lact_args)
     decompressed = b"".join(decomp.decompress(bytes([b])) for b in compressed)
     assert text == decompressed
 
     
-def test_cd_caat_brief():
-    cd_char_at_a_time_test("")
-    cd_char_at_a_time_test("Hi!")
-    cd_char_at_a_time_test("The quick brown fox jumped over the lazy dogs.\n")
+def test_cd_caat_brief(lact_args):
+    cd_char_at_a_time_test("", lact_args)
+    cd_char_at_a_time_test("Hi!", lact_args)
+    cd_char_at_a_time_test("The quick brown fox jumped over the lazy dogs.\n", lact_args)
 
-def test_cd_caat_medium(medium_text):
-    cd_char_at_a_time_test(medium_text)
+def test_cd_caat_medium(medium_text, lact_args):
+    cd_char_at_a_time_test(medium_text, lact_args)
 
 
 import glob
 import os
 
-def like_from_tlacz_test(size):
+def like_from_tlacz_test(size, lact_args):
     #logging.debug(f"test_like_from_tlacz({size=})")
     test_size = 0
     text = bytearray(size)
@@ -233,14 +297,14 @@ def like_from_tlacz_test(size):
             break
     assert len(text) == size
     #BIG_DATA = lac.compress(BIG_TEXT, compresslevel=1)
-    comp = latc.LACTokCompressor()
+    comp = LTC(lact_args=lact_args)
     data = comp.compress(text, compresslevel=1)
     logging.debug(f"pre-flush {comp=}")
     data += comp.flush()
     logging.debug(f"post-flush {comp=}")
 
-def test_like_from_tlacz_short():
-    like_from_tlacz_test(128)
+def test_like_from_tlacz_short(lact_args):
+    like_from_tlacz_test(128, lact_args)
 
 @pytest.mark.slow
 @pytest.mark.skip(reason="Not useful as a recurring test")
@@ -259,16 +323,16 @@ data1 = b"""  int length=DEFAULTALLOC, err = Z_OK;
 """
 
 @pytest.mark.skip(reason="FIXME: Is this test valid with LLM prediction?")
-def test_find_tok_difference_in_compressed():
+def test_find_tok_difference_in_compressed(lact_args):
     for n in range(7):
         input_data = data1 * n
-        comp_lbl = latc.LACTokCompressor(tok_mode = "line-by-line",save_toks=1)
+        comp_lbl = LTC(tok_mode = "line-by-line",save_toks=1, lact_args=lact_args)
         data_lbl = comp_lbl.compress(input_data, compresslevel=1) + comp_lbl.flush()
-        comp_hold = latc.LACTokCompressor(tok_mode = "hold all until flush",save_toks=1)
+        comp_hold = LTC(tok_mode = "hold all until flush",save_toks=1, lact_args=lact_args)
         data_hold = comp_hold.compress(input_data, compresslevel=1) + comp_hold.flush()
-        comp_minbuf = latc.LACTokCompressor(tok_mode = "buffer minimum for correct",save_toks=1)
+        comp_minbuf = LTC(tok_mode = "buffer minimum for correct",save_toks=1, lact_args=lact_args)
         data_minbuf = comp_minbuf.compress(input_data, compresslevel=1) + comp_minbuf.flush()
-        decomp = latc.LACTokDecompressor()
+        decomp = LTD(lact_args=lact_args)
         decompressed = decomp.decompress(data_hold)
 
         comp_lbl.predictor.restart()
@@ -286,7 +350,7 @@ def test_find_tok_difference_in_compressed():
         
         assert decompressed == input_data
         assert data_hold == data_minbuf
-        assert latc.LACTokDecompressor().decompress(data_lbl) == input_data
+        assert LTD(lact_args=lact_args).decompress(data_lbl) == input_data
         #assert data_lbl == data_hold == data_minbuf
 
         # logging.info(f"pre-flush {comp=} {len(data)=}")
@@ -306,13 +370,13 @@ def test_like_tlacz_write_read_with_pathlike_file(tmp_path):
     like_tlacz_write_read_with_pathlike_file_test(data50) # Fails
 
 
-def like_tlacz_write_read_with_pathlike_file_test(input_data):
-    comp = latc.LACTokCompressor()
+def like_tlacz_write_read_with_pathlike_file_test(input_data, lact_args):
+    comp = LTC(lact_args=lact_args)
     data = comp.compress(input_data, compresslevel=1)
     logging.info(f"pre-flush {comp=} {len(data)=}")
     data += comp.flush()
     logging.info(f"post-flush {comp=} {len(data)=}")
-    decomp = latc.LACTokDecompressor()
+    decomp = LTD(lact_args=lact_args)
     decompressed = decomp.decompress(data)
     if decompressed != input_data:
         logging.info(f"{input_data[-50:]}")
@@ -325,7 +389,7 @@ def like_tlacz_write_read_with_pathlike_file_test(input_data):
 
 
 @pytest.mark.skip(reason="atok_compressor only does a single stream")
-def test_like_tlacz_multi_stream_ordering():
+def test_like_tlacz_multi_stream_ordering(lact_args):
     # Test the ordering of streams when reading a multi-stream archive.
     data1 = b"foo" * 1000
     data2 = b"bar" * 1000
@@ -335,11 +399,11 @@ def test_like_tlacz_multi_stream_ordering():
     #     bz2f.write(data2)
     # with LacFile(filename) as bz2f:
     #     assert bz2f.read() == data1 + data2
-    comp = latc.LACTokCompressor()
+    comp = LTC(lact_args=lact_args)
     data = comp.compress(data1, compresslevel=1) + comp.flush()
-    comp = latc.LACTokCompressor()
+    comp = LTC(lact_args=lact_args)
     data += comp.compress(data2, compresslevel=1) + comp.flush()
-    decomp = latc.LACTokDecompressor()
+    decomp = LTD(lact_args=lact_args)
     decompressed = decomp.decompress(data)
     assert decompressed == data1 + data2
 

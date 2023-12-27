@@ -116,6 +116,7 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
     HACKED by TAS
     After Karpathy
     """
+    logging.debug(f"provide_model({model_name=}, {device=}, {threads=}, {verbose=})")
     # -----------------------------------------------------------------------------
     init_from = (
         #"resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
@@ -125,9 +126,9 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
     init_from = (model_name, "resume")[model_name == "internal"]
     ckpt_path = "ckpt-0600.pt"  # HACK to allow setting by configurator.py
     start = "\n"  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
-    temperature = (
-        1.0  # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
-    )
+    # temperature = (
+    #     1.0  # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
+    # )
     seed = 1337
     #device = args.device  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
     dtype = (
@@ -143,7 +144,6 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
     #     logging.debug(f"provide_model: {k} = {v}")
     #     exec(f"{k} = {v}")
 
-    device = "cuda:3"
     device_type = (
         "cuda" if "cuda" in device else "cpu"
     )  # for later use in torch.autocast
@@ -341,18 +341,18 @@ class LLMPredictionServiceProvider:
         self._cache = {}
 
     def __call__(self, model_name, device, threads):
+        device = device or "cpu"
         k = (model_name, device)
         if k in self._cache:
             lp, idx = self._cache[k]
         else:
-            model, ctx, idx = self.model_provider(device=device, threads=threads)
+            logging.info(f"LLMPredictionServiceProvider getting a model({device=}, {threads=})\n")
+            model, ctx, idx = self.model_provider(model_name=model_name, device=device, threads=threads)
             lp = LLMPredictor(model, ctx)
             self._cache[k] = (lp, idx)
         return LLMPredictionService(lp, idx)
         
 
-
-device = "cuda:2"
 
 # model, ctx, idx = provide_model(device=device, threads=16)
 # def provide_prediction_service(device="cpu"):
@@ -361,7 +361,7 @@ device = "cuda:2"
 #     return lps
 
 llm_psp = LLMPredictionServiceProvider(provide_model, 1)
-def provide_prediction_service(model_name, device="cpu", threads=1):
+def provide_prediction_service(model_name, device=None, threads=1):
     return llm_psp(model_name, device, threads)
 
 #

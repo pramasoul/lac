@@ -14,10 +14,20 @@ import lac
 
 from builtins import open as _builtin_open
 import io
+import logging
 import os
 import psutil
 import sys
 import _compression
+
+# # Configure logging
+# logging.basicConfig(
+#     #level=logging.DEBUG,
+#     level=logging.WARNING,
+#     format="%(asctime)s - %(levelname)s - %(message)s",
+#     handlers=[logging.StreamHandler()],
+# )  # StreamHandler logs to console
+
 
 from lactok_compressor import LACTokCompressor as LacCompressor
 from lactok_compressor import LACTokDecompressor as LacDecompressor
@@ -39,7 +49,7 @@ class LacFile(_compression.BaseStream):
     returned as bytes, and data to be written should be given as bytes.
     """
 
-    def __init__(self, filename, mode="r"):
+    def __init__(self, filename, mode="r", **kwargs):
         """Open a bzip2-compressed file.
 
         If filename is a str, bytes, or PathLike object, it gives the
@@ -57,6 +67,8 @@ class LacFile(_compression.BaseStream):
         If mode is 'r', the input file may be the concatenation of
         multiple compressed streams.
         """
+        logging.debug(f"LacFile({filename=}, {mode=}, {kwargs=})")
+        self.kwargs = kwargs
         self.name = str(filename)
         self._fp = None
         self._closefp = False
@@ -68,15 +80,15 @@ class LacFile(_compression.BaseStream):
         elif mode in ("w", "wb"):
             mode = "wb"
             mode_code = _MODE_WRITE
-            self._compressor = LacCompressor()
+            self._compressor = LacCompressor(**kwargs)
         elif mode in ("x", "xb"):
             mode = "xb"
             mode_code = _MODE_WRITE
-            self._compressor = LacCompressor()
+            self._compressor = LacCompressor(**kwargs)
         elif mode in ("a", "ab"):
             mode = "ab"
             mode_code = _MODE_WRITE
-            self._compressor = LacCompressor()
+            self._compressor = LacCompressor(**kwargs)
         else:
             raise ValueError("Invalid mode: %r" % (mode,))
 
@@ -92,7 +104,7 @@ class LacFile(_compression.BaseStream):
 
         if self._mode == _MODE_READ:
             raw = _compression.DecompressReader(
-                self._fp, LacDecompressor, trailing_error=OSError
+                self._fp, LacDecompressor, trailing_error=OSError, **kwargs
             )
             self._buffer = io.BufferedReader(raw)
         else:
@@ -273,7 +285,7 @@ class LacFile(_compression.BaseStream):
 
 
 def open(
-    filename, mode="rb", encoding=None, errors=None, newline=None
+        filename, mode="rb", encoding=None, errors=None, newline=None, **kwargs
 ):
     """Open a bzip2-compressed file in binary or text mode.
 
@@ -294,6 +306,9 @@ def open(
     handling behavior, and line ending(s).
 
     """
+    logging.debug(f"open({filename=}, {mode=}, ... {kwargs=})")
+    assert "device" in kwargs
+    
     if "t" in mode:
         if "b" in mode:
             raise ValueError("Invalid mode: %r" % (mode,))
@@ -306,7 +321,7 @@ def open(
             raise ValueError("Argument 'newline' not supported in binary mode")
 
     bz_mode = mode.replace("t", "")
-    binary_file = LacFile(filename, bz_mode)
+    binary_file = LacFile(filename, bz_mode, **kwargs)
 
     if "t" in mode:
         encoding = io.text_encoding(encoding)
@@ -315,23 +330,23 @@ def open(
         return binary_file
 
 
-def compress(data):
+def compress(data, **kwargs):
     """Compress a block of data.
 
     For incremental compression, use a LacCompressor object instead.
     """
-    comp = LacCompressor()
+    comp = LacCompressor(**kwargs)
     return comp.compress(data) + comp.flush()
 
 
-def decompress(data):
+def decompress(data, **kwargs):
     """Decompress a block of data.
 
     For incremental decompression, use a LacDecompressor object instead.
     """
     results = []
     while data:
-        decomp = LacDecompressor()
+        decomp = LacDecompressor(**kwargs)
         try:
             res = decomp.decompress(data)
         except OSError:
@@ -392,28 +407,53 @@ def main():
     parser.add_argument(
         "-T", "--temperature", type=float, default=1.0, help="model's logits scaling"
     )
+    parser.add_argument('--log', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        help='Set the logging level')
     parser.add_argument(
         "-v", "--verbose", default=0, action="count", help="verbosity about internals"
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="work quietly")
 
     args = parser.parse_args()
+    #sys.stderr.write(f"{args=}\n")
 
+    logging.basicConfig(
+        level=getattr(logging, args.log.upper(), None),
+        #format="%(asctime)s - %(levelname)s - %(message)s",
+        #format="[%(asctime)s] p%(process)s {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s",
+        format="%(pathname)s:%(lineno)d %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()],
+    )  # StreamHandler logs to console
 
+    #sys.stderr.write(f"{logging.root.level=}\n")
+    logging.debug(f"{args=}")
+
+    lacfile_args = { 'model_name': args.model,
+                      'device': args.device,
+                      'threads': args.threads,
+    }
+                      
     chunk_size = io.DEFAULT_BUFFER_SIZE
-    stdout_chunk_size = 32      # FIXME: hangs if 20 or below (threshold undetermined)
+    # buggy stdout_chunk_size = 32      # FIXME: hangs if 20 or below (threshold undetermined)
+    # At 32, failed ./tlacz.py -c ~/tmp/F.txt --device cuda:2 | ./tlacz.py -d - --device cuda:3
+    stdout_chunk_size = 64
+    #stdout_chunk_size = chunk_size # DEBUG: hack it to unchanging
+
+    if args.stdout:
+        chunk_size = stdout_chunk_size
 
     for arg in args.args:
         if args.decompress:
             if arg == "-":
-                # f = LacFile(filename="", mode="rb", fileobj=sys.stdin.buffer)
-                f = LacFile(sys.stdin.buffer)
+                f = LacFile(sys.stdin.buffer,
+                            **lacfile_args,
+                )
                 g = sys.stdout.buffer
                 chunk_size = stdout_chunk_size
             else:
                 if arg[-5:] != ".lacz":
                     sys.exit(f"filename doesn't end in .lacz: {arg!r}")
-                f = open(arg, "rb")
+                f = open(arg, "rb", **lacfile_args)
                 if args.stdout:
                     g = sys.stdout.buffer
                     chunk_size = stdout_chunk_size
@@ -425,6 +465,7 @@ def main():
                 g = LacFile(
                     sys.stdout.buffer,
                     mode="wb",
+                    **lacfile_args,
                 )
             else:
                 f = _builtin_open(arg, "rb")
@@ -432,10 +473,11 @@ def main():
                     g = LacFile(
                         sys.stdout.buffer,
                         mode="wb",
+                        **lacfile_args,
                     )
                 else:
-                    g = open(arg + ".lacz", "wb")
-        sys.stderr.write(f"{chunk_size=}\n")
+                    g = open(arg + ".lacz", "wb", **lacfile_args)
+        #sys.stderr.write(f"{chunk_size=}\n")
         _compression.BUFFER_SIZE = chunk_size
         while True:
             chunk = f.read(chunk_size)

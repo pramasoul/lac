@@ -57,6 +57,8 @@ class LACTokCompressor:
                  encoding_name="gpt2",
                  model_name="internal",
                  tok_mode="line-by-line",
+                 device="cpu",
+                 threads=1,
                  save_toks=False):
         self.encoding_name = encoding_name
         self.tok_mode = tok_mode #DEBUG
@@ -64,7 +66,10 @@ class LACTokCompressor:
         if self.tok_mode == "buffer minimum for correct":
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name))
+        logging.info(f"LAXTokCompressor calling provide_prediction_service({model_name=}, {device=}, {threads=})\n")
+        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name=model_name,
+                                                                                 device=device,
+                                                                                 threads=threads))
         logging.debug(f"LACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
         self.input_accumulator = ""
@@ -198,6 +203,8 @@ class LACTokDecompressor:
     def __init__(self,
                  encoding_name="gpt2",
                  model_name="internal",
+                 device="cpu",
+                 threads=1,
                  save_toks=False):
         logging.debug(f"LACTokDecompressor.__init__({encoding_name=})")
         if not isinstance(encoding_name, (str, bytes)):
@@ -205,7 +212,11 @@ class LACTokDecompressor:
         self.encoding_name = encoding_name
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name))
+        logging.info(f"LAXTokecmpressor calling provide_prediction_service({model_name=}, {device=}, {threads=})\n")
+        assert device is not None
+        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name=model_name,
+                                                                                 device=device,
+                                                                                 threads=threads))
         logging.debug(f"LACTokDecompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.dtype = np.dtype('<u2')
         self._restart()

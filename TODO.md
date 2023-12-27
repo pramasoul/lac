@@ -10,13 +10,15 @@
     * [x] from test_tlacz
   * [x] commit
 * [x] mark.skip the ordinality benchmark ramp in tlacz
-
 * [ ] Make logging more sane
+  * [ ] Clean up profusion and formats
+  * [ ] Make them appropriately enablable perhaps by debug level
+  * [x] --log LEVEL command line arg
 
 ## Command-line
-* [ ] Make tlacz -m MODEL feed thru to actual effect
-* [ ] Make tlacz --device feed thru to actual effect
-* [ ] Make tlacz --threads feed thru to actual effect
+* [x] Make tlacz -m MODEL feed thru to actual effect
+* [x] Make tlacz --device feed thru to actual effect
+* [x] Make tlacz --threads feed thru to actual effect
 * [ ] Make tlacz -T TEMPERATURE feed thru to actual effect
 * [ ] Make tlacz -v feed thru to actual effect
   * [ ] -v to report compression ratio etc
@@ -24,8 +26,15 @@
 * [ ] Make tlacz log_level switch
 
 ## Usability
-* [ ] Make stdout flush often enough to see progress
+* [x] Make stdout flush often enough to see progress
   * [ ] Debug why too short stdout_chunk_size hangs. Is it footer decoding?
+* [ ] Review file naming and overwriting and correct
+* [ ] Provide means of establishing defaults for
+  * [ ] model
+  * [ ] device
+  * [ ] threads
+* [ ] Establish return values when run as a command
+
 
 ## Robustness
 * [ ] Use `model.config` info e.g. GPTConfig(block_size=1024, vocab_size=50304,...)`
