@@ -11,6 +11,7 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 
 import logging
 import math
+import sys
 import inspect
 from dataclasses import dataclass
 
@@ -48,8 +49,8 @@ class CausalSelfAttention(nn.Module):
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
         if not self.flash:
-            print(
-                "WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0"
+            sys.stderr.write(
+                "WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0\n"
             )
             # causal mask to ensure that attention is only applied to the left in the input sequence
             self.register_buffer(
@@ -255,7 +256,7 @@ class GPT(nn.Module):
         assert all(k == "dropout" for k in override_args)
         from transformers import GPT2LMHeadModel
 
-        print("loading weights from pretrained gpt: %s" % model_type)
+        sys.stderr.write("loading weights from pretrained gpt: %s\n" % model_type)
 
         # n_layer, n_head and n_embd are determined from model_type
         config_args = {
@@ -264,13 +265,13 @@ class GPT(nn.Module):
             "gpt2-large": dict(n_layer=36, n_head=20, n_embd=1280),  # 774M params
             "gpt2-xl": dict(n_layer=48, n_head=25, n_embd=1600),  # 1558M params
         }[model_type]
-        print("forcing vocab_size=50257, block_size=1024, bias=True")
+        sys.stderr.write("forcing vocab_size=50257, block_size=1024, bias=True\n")
         config_args["vocab_size"] = 50257  # always 50257 for GPT model checkpoints
         config_args["block_size"] = 1024  # always 1024 for GPT model checkpoints
         config_args["bias"] = True  # always True for GPT model checkpoints
         # we can override the dropout rate, if desired
         if "dropout" in override_args:
-            print(f"overriding dropout rate to {override_args['dropout']}")
+            sys.stderr.write(f"overriding dropout rate to {override_args['dropout']}\n")
             config_args["dropout"] = override_args["dropout"]
         # create a from-scratch initialized minGPT model
         config = GPTConfig(**config_args)
@@ -333,11 +334,11 @@ class GPT(nn.Module):
         ]
         num_decay_params = sum(p.numel() for p in decay_params)
         num_nodecay_params = sum(p.numel() for p in nodecay_params)
-        print(
-            f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters"
+        sys.stderr.write(
+            f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters\n"
         )
-        print(
-            f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters"
+        sys.stderr.write(
+            f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters\n"
         )
         # Create AdamW optimizer and use the fused version if it is available
         fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
@@ -346,7 +347,7 @@ class GPT(nn.Module):
         optimizer = torch.optim.AdamW(
             optim_groups, lr=learning_rate, betas=betas, **extra_args
         )
-        print(f"using fused AdamW: {use_fused}")
+        sys.stderr.write(f"using fused AdamW: {use_fused}\n")
 
         return optimizer
 
