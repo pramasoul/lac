@@ -4,6 +4,9 @@ Compress using a trained model as a predictor
 The name ``lac'' is meant to suggest "LLM Arithmetic Coder"
 """
 
+__version_bytes__ = bytes([0, 1])
+__version__ = f"{'.'.join(str(int(b)) for b in __version_bytes__)}"
+
 __author__ = "Tom Soulanille <soul@prama.com>"
 __homage__author__ = "Nadeem Vawda <nadeem.vawda@gmail.com>"
 
@@ -307,7 +310,7 @@ def open(
 
     """
     logging.debug(f"open({filename=}, {mode=}, ... {kwargs=})")
-    assert "device" in kwargs
+    # assert "device" in kwargs
     
     if "t" in mode:
         if "b" in mode:
@@ -367,6 +370,36 @@ def decompress(data, **kwargs):
 # gzip.py says at the top:
 # based on Andrew Kuchling's minigzip.py distributed with the zlib module
 
+"""
+Usage: brotli [OPTION]... [FILE]...
+Options:
+  -#                          compression level (0-9)
+  -c, --stdout                write on standard output
+  -d, --decompress            decompress
+  -f, --force                 force output file overwrite
+  -h, --help                  display this help and exit
+  -j, --rm                    remove source file(s)
+  -k, --keep                  keep source file(s) (default)
+  -n, --no-copy-stat          do not copy source file(s) attributes
+  -o FILE, --output=FILE      output file (only if 1 input file)
+  -q NUM, --quality=NUM       compression level (0-11)
+  -t, --test                  test compressed file integrity
+  -v, --verbose               verbose mode
+  -w NUM, --lgwin=NUM         set LZ77 window size (0, 10-24)
+                              window size = 2**NUM - 16
+                              0 lets compressor choose the optimal value
+  --large_window=NUM          use incompatible large-window brotli
+                              bitstream with window size (0, 10-30)
+                              WARNING: this format is not compatible
+                              with brotli RFC 7932 and may not be
+                              decodable with regular brotli decoders
+  -S SUF, --suffix=SUF        output file suffix (default:'.br')
+  -V, --version               display version and exit
+  -Z, --best                  use best compression level (11) (default)
+Simple options could be coalesced, i.e. '-9kf' is equivalent to '-9 -k -f'.
+With no FILE, or when FILE is -, read standard input.
+All arguments after '--' are treated as files.
+"""
 
 def main():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -380,10 +413,21 @@ def main():
     group.add_argument("--fast", action="store_true", help="compress faster")
     group.add_argument("--best", action="store_true", help="compress better")
     group.add_argument("-d", "--decompress", action="store_true", help="decompress")
-
-    parser.add_argument("args", nargs="*", default=["-"], metavar="file")
-    parser.add_argument("-c", "--stdout", "--to-stdout", action="store_true",
-                        help="Write output on standard output; keep input files unchanged")
+    group2 = parser.add_mutually_exclusive_group()
+    group2.add_argument("-c", "--stdout", "--to-stdout", action="store_true",
+                        help="Write output on standard output")
+    group2.add_argument("-t", "--test", action="store_true",
+                        help="test compressed file integrity")
+    group2.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        help="output file (only if 1 input file)",
+    )
+    parser.add_argument("-k", "--keep", action="store_true", default=True,
+                        help="keep source file(s) (default)")
+    parser.add_argument("-V", "--version", action="store_true",
+                        help="display version and exit")
     parser.add_argument(
         "--device",
         type=str,
@@ -413,9 +457,13 @@ def main():
         "-v", "--verbose", default=0, action="count", help="verbosity about internals"
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="work quietly")
+    parser.add_argument("args", nargs="*", default=["-"], metavar="file")
 
     args = parser.parse_args()
     #sys.stderr.write(f"{args=}\n")
+    if args.version:
+        print(f"{sys.argv[0]}: {__version__}")
+        sys.exit(0)
 
     logging.basicConfig(
         level=getattr(logging, args.log.upper(), None),
