@@ -15,3 +15,7 @@ Omit tests marked with @pytest.mark.compressed_data:
 
 Run only tests marked with @pytest.mark.compressed_data:
   -k "compressed_data"
+
+Specify model, device, and threads (for cpu device):
+  --model gpt2-medium --device cuda:1 --threads 8
+ 

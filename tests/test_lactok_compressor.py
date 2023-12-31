@@ -31,8 +31,15 @@ from lac_llm import FlatPredictionService, CountingPredictionService
 # The test configurations to choose from (source-configured)
 # Thorough, and quite time-consuming:
 configurations = []
-for model_name in ["internal", "gpt2", "gpt2-medium"]:
-    for device in ["cpu", "cuda:3"]:
+for model_name in ["internal", "gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"]:
+    for device in ["cpu"]:
+# for model_name, device in [("internal", "cuda:0"),
+#                            ("gpt2", "cuda:1"),
+#                            ("gpt2-medium", "cuda:2"),
+#                            ("gpt2-xl", "cuda:3"),
+#                            ("internal", "cpu"),
+# ]:
+#     if True: # cheap indent
         thread_list = [1]
         if device == "cpu":
             thread_list = [psutil.cpu_count(logical=False)]
@@ -44,8 +51,9 @@ for model_name in ["internal", "gpt2", "gpt2-medium"]:
                 }
             )
 
+
 # Fastest configuration. Run this first, until you pass, then run thorough configuration
-configurations = [{"model_name": "internal", "device": "cuda:3", "threads": psutil.cpu_count(logical=False)}]
+#configurations = [{"model_name": "internal", "device": "cuda:3", "threads": psutil.cpu_count(logical=False)}]
 
 # Configure logging
 logging.basicConfig(
@@ -169,11 +177,18 @@ def test_bits_to_bytes_to_bits():
 #     return latc.LACTokDecompressor(*args, **kwargs, **LACT_args)
 
 
-logging.info(f"{configurations=}")
+# logging.info(f"{configurations=}")
 
-@pytest.fixture(params=configurations)
-def lact_args(request):
-    return request.param
+# @pytest.fixture(params=configurations)
+# def lact_args(request):
+#     return request.param
+
+@pytest.fixture
+def lact_args(model_name, device, threads):
+    return { "model_name": model_name,
+             "device": device,
+             "threads": threads,
+    }
 
 def LTC(*args, **kwargs):
     lact_args = kwargs.pop('lact_args', {})
@@ -309,10 +324,10 @@ def test_like_from_tlacz_short(lact_args):
 @pytest.mark.slow
 @pytest.mark.skip(reason="Not useful as a recurring test")
 @pytest.mark.parametrize("size", [1<<i for i in range(16)])
-def test_like_from_tlacz_ramp(benchmark, size):
+def test_like_from_tlacz_ramp(benchmark, size, lact_args):
     #like_from_tlacz_test(size)
     #v = benchmark(like_from_tlacz_test, size)
-    benchmark.pedantic(like_from_tlacz_test, args=(size,), iterations=1, rounds=1)
+    benchmark.pedantic(like_from_tlacz_test, args=(size,lact_args), iterations=1, rounds=1)
     
 
 data1 = b"""  int length=DEFAULTALLOC, err = Z_OK;
@@ -360,14 +375,13 @@ def test_find_tok_difference_in_compressed(lact_args):
 
 @pytest.mark.slow
 @pytest.mark.parametrize("n", [0,1,2,3,4,8,16,32,48,50])
-def test_n_like_tlacz_write_read_with_pathlike_file(n):
-    like_tlacz_write_read_with_pathlike_file_test(data1 * n)
+def test_n_like_tlacz_write_read_with_pathlike_file(n, lact_args):
+    like_tlacz_write_read_with_pathlike_file_test(data1 * n, lact_args)
 
 @pytest.mark.slow
-def test_like_tlacz_write_read_with_pathlike_file(tmp_path):
+def test_like_tlacz_write_read_with_pathlike_file(tmp_path, lact_args):
     data50 = data1 * 50
-    like_tlacz_write_read_with_pathlike_file_test(data50 + b'.') # Passes
-    like_tlacz_write_read_with_pathlike_file_test(data50) # Fails
+    like_tlacz_write_read_with_pathlike_file_test(data50, lact_args)
 
 
 def like_tlacz_write_read_with_pathlike_file_test(input_data, lact_args):
