@@ -179,7 +179,7 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
 
     # model
     if init_from == "resume":
-        verbose and print(f"ckpt_path {ckpt_path}, device {device}")
+        verbose and sys.stderr.write(f"ckpt_path {ckpt_path}, device {device}\n")
         checkpoint = torch.load(ckpt_path, map_location=device)
         gptconf = GPTConfig(**checkpoint["model_args"])
         model = GPT(gptconf)
@@ -208,7 +208,7 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
         meta_path = os.path.join("data", checkpoint["config"]["dataset"], "meta.pkl")
         load_meta = os.path.exists(meta_path)
     if load_meta:
-        print(f"Loading meta from {meta_path}...")
+        sys.stderr.write(f"Loading meta from {meta_path}...\n")
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
         # TODO want to make this more general to arbitrary encoder/decoder schemes
@@ -379,14 +379,14 @@ if False:
         if input_version_bytes != __version_bytes__:
             s = f"Input file is version {input_version_str} and I am {__version__}. I'm not smart enough to know if I can do this."
             logging.warning(s)
-            sys.stderr.write(s)
+            sys.stderr.write(s + "\n")
 
     device = args.device
     temperature = args.temperature
 
     enc = tiktoken.get_encoding("gpt2")
     eot_token = enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-    args.verbose and print(f"<|endoftext|> is {eot_token}")
+    args.verbose and sys.stderr.write(f"<|endoftext|> is {eot_token}\n")
 
 
 if False:
