@@ -405,25 +405,20 @@ def main():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
     parser = ArgumentParser(
-        description="A simple command line interface for the lac module: act like gzip, "
-        "but do not delete the input file.",
+        description="A simple command line interface for the lac module: act like brotli",
         formatter_class=ArgumentDefaultsHelpFormatter,
     )
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--fast", action="store_true", help="compress faster")
-    group.add_argument("--best", action="store_true", help="compress better")
-    group.add_argument("-d", "--decompress", action="store_true", help="decompress")
+    group1 = parser.add_mutually_exclusive_group()
+    group1.add_argument("--fast", action="store_true", help="compress faster")
+    group1.add_argument("--best", action="store_true", help="compress better")
+    group1.add_argument("-d", "--decompress", action="store_true", help="decompress")
     group2 = parser.add_mutually_exclusive_group()
     group2.add_argument("-c", "--stdout", "--to-stdout", action="store_true",
                         help="Write output on standard output")
     group2.add_argument("-t", "--test", action="store_true",
                         help="test compressed file integrity")
-    group2.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        help="output file (only if 1 input file)",
-    )
+    group2.add_argument("-o", "--output", type=str,
+                        help="output file (only if 1 input file)")
     parser.add_argument("-k", "--keep", action="store_true", default=True,
                         help="keep source file(s) (default)")
     parser.add_argument("-V", "--version", action="store_true",
@@ -453,14 +448,16 @@ def main():
     )
     parser.add_argument('--log', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the logging level')
-    parser.add_argument(
+    group3 = parser.add_mutually_exclusive_group()
+    group3.add_argument(
         "-v", "--verbose", default=0, action="count", help="verbosity about internals"
     )
-    parser.add_argument("-q", "--quiet", action="store_true", help="work quietly")
+    group3.add_argument("-q", "--quiet", action="store_true", help="work quietly")
     parser.add_argument("args", nargs="*", default=["-"], metavar="file")
 
     args = parser.parse_args()
     #sys.stderr.write(f"{args=}\n")
+    
     if args.version:
         print(f"{sys.argv[0]}: {__version__}")
         sys.exit(0)
@@ -484,48 +481,58 @@ def main():
     chunk_size = io.DEFAULT_BUFFER_SIZE
     # buggy stdout_chunk_size = 32      # FIXME: hangs if 20 or below (threshold undetermined)
     # At 32, failed ./tlacz.py -c ~/tmp/F.txt --device cuda:2 | ./tlacz.py -d - --device cuda:3
-    stdout_chunk_size = 64
+    stdout_chunk_size = 64 # FIXME: Maybe works. Maybe won't once header / footer size changes
     #stdout_chunk_size = chunk_size # DEBUG: hack it to unchanging
+
+    """
+    lac -o foo bar baz => error "-o/--output can only be used with a single input file"
+    lac - => compress stdin to stdout
+    lac foo.txt => compress foo.txt to foo.txt.lacz
+    lac -d foo.txt.lacz => decompress foo.txt.lacz to foo.txt
+    lac -o bar foo => compress foo to bar
+    lac -o bar foo -d => decompress foo to bar
+    lac -d - => decompress stdin to stdout
+    lac -d foo -o bar => decompress foo to bar
+    lac -o foo - => decompress stdin to foo
+    lac -o - - => compress stdin to stdout
+    lac foo bar => compress foo to foo.lacz, and bar to bar.lacz
+    lac -d foo.lacz bar.lacz => decompress foo.lacz to foo, and bar.lacz to bar
+    lac -cd foo bar => compress foo and bar to stdout
+    """
+
+    #print(f"{args.args=}")
 
     if args.stdout:
         chunk_size = stdout_chunk_size
 
+    if args.output and len(args.args) != 1:
+        parser.error("-o/--output can only be used with a single input file")
+
+    extn = ".lacz"
     for arg in args.args:
+        out = arg
         if args.decompress:
-            if arg == "-":
-                f = LacFile(sys.stdin.buffer,
-                            **lacfile_args,
-                )
-                g = sys.stdout.buffer
-                chunk_size = stdout_chunk_size
-            else:
-                if arg[-5:] != ".lacz":
-                    sys.exit(f"filename doesn't end in .lacz: {arg!r}")
-                f = open(arg, "rb", **lacfile_args)
-                if args.stdout:
-                    g = sys.stdout.buffer
-                    chunk_size = stdout_chunk_size
-                else:
-                    g = _builtin_open(arg[:-5], "wb")
+            if out[-len(extn):] == extn:
+                out = out[:-len(extn)]
+        elif out != '-':
+            out += extn
+        if args.output:
+            out = args.output
+
+        if args.decompress:
+            outfile = sys.stdout.buffer if out == '-' or args.stdout else _builtin_open(out,"wb")
+            infile = open(sys.stdin.buffer if arg == '-' else arg,"rb", **lacfile_args)
         else:
-            if arg == "-":
-                f = sys.stdin.buffer
-                g = LacFile(
-                    sys.stdout.buffer,
-                    mode="wb",
-                    **lacfile_args,
-                )
-            else:
-                f = _builtin_open(arg, "rb")
-                if args.stdout:
-                    g = LacFile(
-                        sys.stdout.buffer,
-                        mode="wb",
-                        **lacfile_args,
-                    )
-                else:
-                    g = open(arg + ".lacz", "wb", **lacfile_args)
-        #sys.stderr.write(f"{chunk_size=}\n")
+            outfile = open(sys.stdout.buffer if out == '-' or args.stdout else out,"wb", **lacfile_args)
+            infile = sys.stdin.buffer if arg == '-' else _builtin_open(arg,"rb")
+
+            
+        f,g = infile, outfile
+
+        f_mode = hasattr(f, "_mode") and f._mode or "NA"
+        g_mode = hasattr(g, "_mode") and g._mode or "NA"
+        logging.info(f"{f=} mode {f_mode}, {g=} mode {g_mode}")
+
         _compression.BUFFER_SIZE = chunk_size
         while True:
             chunk = f.read(chunk_size)
