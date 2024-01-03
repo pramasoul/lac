@@ -23,14 +23,7 @@ import psutil
 import sys
 import _compression
 
-# # Configure logging
-# logging.basicConfig(
-#     #level=logging.DEBUG,
-#     level=logging.WARNING,
-#     format="%(asctime)s - %(levelname)s - %(message)s",
-#     handlers=[logging.StreamHandler()],
-# )  # StreamHandler logs to console
-
+from config import SingletonConfig
 
 from lactok_compressor import LACTokCompressor as LacCompressor
 from lactok_compressor import LACTokDecompressor as LacDecompressor
@@ -401,6 +394,8 @@ With no FILE, or when FILE is -, read standard input.
 All arguments after '--' are treated as files.
 """
 
+config = SingletonConfig()
+
 def main():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
@@ -448,6 +443,7 @@ def main():
     )
     parser.add_argument('--log', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the logging level')
+    parser.add_argument('--debug', action='append', default=[], help='Add debug options')
     group3 = parser.add_mutually_exclusive_group()
     group3.add_argument(
         "-v", "--verbose", default=0, action="count", help="verbosity about internals"
@@ -469,6 +465,9 @@ def main():
         format="%(pathname)s:%(lineno)d %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler()],
     )  # StreamHandler logs to console
+
+    config.debug = args.debug
+    config.verbose = args.verbose
 
     #sys.stderr.write(f"{logging.root.level=}\n")
     logging.debug(f"{args=}")
@@ -531,7 +530,10 @@ def main():
 
         f_mode = hasattr(f, "_mode") and f._mode or "NA"
         g_mode = hasattr(g, "_mode") and g._mode or "NA"
-        logging.info(f"{f=} mode {f_mode}, {g=} mode {g_mode}")
+        logging.debug(f"{f=} mode {f_mode}, {g=} mode {g_mode}")
+
+        if "dryrun" in args.debug:
+            continue
 
         _compression.BUFFER_SIZE = chunk_size
         while True:

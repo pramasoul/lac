@@ -26,6 +26,7 @@ from contextlib import nullcontext
 from gpt_model import GPTConfig, GPT
 from pprint import pprint
 
+from config import SingletonConfig
 
 __version_bytes__ = bytes([0, 1])
 __version__ = f"{'.'.join(str(int(b)) for b in __version_bytes__)}"
@@ -111,11 +112,13 @@ def get_header_and_advance(f):
     return version_bytes, versions
 
 
-def provide_model(model_name="internal", device="cpu", threads=1, verbose=False):
+def provide_model(model_name="internal", device="cpu", threads=1):
     r"""
     HACKED by TAS
     After Karpathy
     """
+    config = SingletonConfig()
+    verbose = hasattr(config, "verbose") and config.verbose
     logging.debug(f"provide_model({model_name=}, {device=}, {threads=}, {verbose=})")
     # -----------------------------------------------------------------------------
     init_from = (
@@ -182,6 +185,7 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
         verbose and sys.stderr.write(f"ckpt_path {ckpt_path}, device {device}\n")
         checkpoint = torch.load(ckpt_path, map_location=device)
         gptconf = GPTConfig(**checkpoint["model_args"])
+        gptconf.verbose = verbose
         model = GPT(gptconf)
         state_dict = checkpoint["model"]
         unwanted_prefix = "_orig_mod."
@@ -191,7 +195,7 @@ def provide_model(model_name="internal", device="cpu", threads=1, verbose=False)
         model.load_state_dict(state_dict)
     elif init_from.startswith("gpt2"):
         # init from a given GPT-2 model
-        model = GPT.from_pretrained(init_from, dict(dropout=0.0))
+        model = GPT.from_pretrained(init_from, dict(dropout=0.0), verbose=verbose)
 
     model.eval()
     model.to(device)
@@ -353,67 +357,6 @@ class LLMPredictionServiceProvider:
         return LLMPredictionService(lp, idx)
         
 
-
-# model, ctx, idx = provide_model(device=device, threads=16)
-# def provide_prediction_service(device="cpu"):
-#     lp = LLMPredictor(model, ctx)
-#     lps = LLMPredictionService(lp, idx)
-#     return lps
-
 llm_psp = LLMPredictionServiceProvider(provide_model, 1)
 def provide_prediction_service(model_name, device=None, threads=1):
     return llm_psp(model_name, device, threads)
-
-#
-################################################################
-
-
-
-if False:
-
-    if args.decompress and args.format in ["auto", "bighead"]:
-        input_version_bytes, input_versions = get_header_and_advance(header_source)
-        input_version_str = f"{'.'.join(str(int(b)) for b in input_version_bytes)}"
-        # Is this something we can decompress?
-        # FIXME: get smarter
-        if input_version_bytes != __version_bytes__:
-            s = f"Input file is version {input_version_str} and I am {__version__}. I'm not smart enough to know if I can do this."
-            logging.warning(s)
-            sys.stderr.write(s + "\n")
-
-    device = args.device
-    temperature = args.temperature
-
-    enc = tiktoken.get_encoding("gpt2")
-    eot_token = enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-    args.verbose and sys.stderr.write(f"<|endoftext|> is {eot_token}\n")
-
-
-if False:
-    device = "cuda:3"
-    device_type = (
-        "cuda" if "cuda" in device else "cpu"
-    )  # for later use in torch.autocast
-
-    # Attempt determinism
-    torch.use_deterministic_algorithms(True)
-    # https://docs.nvidia.com/cuda/cublas/index.html#results-reproducibility
-    # set a debug environment variable CUBLAS_WORKSPACE_CONFIG to :16:8
-    # (may limit overall performance) or :4096:8 (will increase library
-    # footprint in GPU memory by approximately 24MiB).
-    if device_type == "cuda":
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-
-    model, dtype, idx = provide_model(device=device, threads=16)
-    ptdtype = {
-        "float32": torch.float32,
-        "bfloat16": torch.bfloat16,
-        "float16": torch.float16,
-    }[dtype]
-    ctx = (
-        nullcontext()
-        if device_type == "cpu"
-        else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
-    )

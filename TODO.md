@@ -20,10 +20,11 @@
 * [x] Make tlacz --device feed thru to actual effect
 * [x] Make tlacz --threads feed thru to actual effect
 * [ ] Make tlacz -T TEMPERATURE feed thru to actual effect
-* [ ] Make tlacz -v feed thru to actual effect
+* [x] Make tlacz -v feed thru to actual effect
   * [ ] -v to report compression ratio etc
 * [ ] Make tlacz -q feed thru to actual effect
-* [ ] Make tlacz log_level switch
+* [x] Make tlacz log_level switch
+* [x] Make -o --output to set output file (see brotli -h)
 
 ## Usability
 * [x] Make stdout flush often enough to see progress
@@ -34,6 +35,7 @@
   * [ ] device
   * [ ] threads
 * [ ] Establish return values when run as a command
+* [ ] On decompression, get parameters (model, cpu/cuda, etc) from header
 
 
 ## Robustness
@@ -45,11 +47,15 @@
 * [ ] Make switch for one-bit header mode
   * [ ] first bit==0 -> no more header
   * [ ] first bit==0 -> no more header
+* [ ] Header contain model hash
+* [ ] Header contain how to get model
 * [ ] Make footer have hash check of correct results
 
 ## Testing
 * [ ] Make compression-data for tests as importable data file that rebuilds
 * [ ] Test with other models
+* [x] Test as a shell-runnable command
+
 
 ## Lurking Trouble
 * [x] Fix idx endless growth in prediction service
@@ -69,6 +75,9 @@
   * [ ] across modes
   * [ ] when batching
   * [ ] when extending idx
+* [ ] Compression vs model & temperature
+
+
 
 ## Ideas & Research
 * [ ] Dealing with noise in pdf

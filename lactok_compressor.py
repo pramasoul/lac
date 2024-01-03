@@ -15,6 +15,7 @@ from lac_llm import provide_model, provide_prediction_service
 from lac_llm import PredictionService, FlatPredictionService, CountingPredictionService
 from ac2_for_z import PDFPredictor, A_to_bin, A_from_bin
 
+from config import SingletonConfig
 
 
 BUFFER_SIZE = io.DEFAULT_BUFFER_SIZE  # Compressed data read chunk size
@@ -141,7 +142,7 @@ class LACTokCompressor:
             eot_ix = toks.locate(self.eot_token)
         except:
             eot_ix = None
-        logging.info(f"{len(toks)=}, {toks[-10:]=}")
+        logging.debug(f"{len(toks)=}, {toks[-10:]=}")
         if self.debug_save_toks:
             self.toks.append(toks)
         self.bits_accumulator.extend(list(self.a2b.bits(toks, stop=False)))
@@ -153,7 +154,7 @@ class LACTokCompressor:
 
 
     def flush(self, *args):
-        logging.info(f"LACTokCompressor.flush({self=}, {args=})")
+        logging.debug(f"LACTokCompressor.flush({self=}, {args=})")
         toks = self.tok_enc.encode(self.input_accumulator)
         toks.append(self.eot_token)
 
@@ -162,7 +163,7 @@ class LACTokCompressor:
             eot_ix = toks.index(self.eot_token)
         except ValueError:
             eot_ix = None
-        logging.info(f"LACTokCompressor.flush {self=} {toks=} {eot_ix=}")
+        logging.debug(f"LACTokCompressor.flush {self=} {toks=} {eot_ix=}")
 
         if self.debug_save_toks:
             self.toks.append(toks)
@@ -212,7 +213,7 @@ class LACTokDecompressor:
         self.encoding_name = encoding_name
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        logging.info(f"LAXTokecmpressor calling provide_prediction_service({model_name=}, {device=}, {threads=})\n")
+        logging.debug(f"LAXTokecmpressor calling provide_prediction_service({model_name=}, {device=}, {threads=})\n")
         assert device is not None
         self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name=model_name,
                                                                                  device=device,
@@ -299,12 +300,12 @@ class LACTokDecompressor:
             logging.debug(f"LACTokDecompressor.decompress {self} {eot_ix=}")
             self.unused_data = self.unused_data[(n_bits+7)//8:] # If we used any bits from that last byte we skip
             if new_toks and new_toks[-1] == self.eot_token:
-                logging.info(f"LACTokDecompressor.decompress hit eot token")
+                logging.debug(f"LACTokDecompressor.decompress hit eot token")
                 assert new_toks.pop() == self.eot_token
                 self.state = "Expecting footer"
-            logging.info(f"LACTokDecompressor.decompress {self} {eot_ix=}")
+            logging.debug(f"LACTokDecompressor.decompress {self} {eot_ix=}")
             self.token_buffer.extend(new_toks)
-            logging.info(f"LACTokDecompressor.decompress {self} {eot_ix=}")
+            logging.debug(f"LACTokDecompressor.decompress {self} {eot_ix=}")
             logging.debug(f"LACTokDecompressor.decompress {self=}")
 
             # Now turn tokens into text in output buffer

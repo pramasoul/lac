@@ -213,7 +213,7 @@ def test_lac_runnable(lac_name):
 
 
     """
-    lac -o foo bar baz => error "-o/--output can only be used with a single input file"
+  * lac -o foo bar baz => error "-o/--output can only be used with a single input file"
   * lac - => compress stdin to stdout
   * lac -c - => compress stdin to stdout
   * lac -d - => decompress stdin to stdout
