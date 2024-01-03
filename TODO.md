@@ -19,7 +19,7 @@
 * [x] Make tlacz -m MODEL feed thru to actual effect
 * [x] Make tlacz --device feed thru to actual effect
 * [x] Make tlacz --threads feed thru to actual effect
-* [ ] Make tlacz -T TEMPERATURE feed thru to actual effect
+* [x] Make tlacz -T TEMPERATURE feed thru to actual effect
 * [x] Make tlacz -v feed thru to actual effect
   * [ ] -v to report compression ratio etc
 * [ ] Make tlacz -q feed thru to actual effect

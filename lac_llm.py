@@ -339,24 +339,25 @@ class LLMPredictor:
 
 
 class LLMPredictionServiceProvider:
+    # FIXME: where should threads be passed, kept, used?
     def __init__(self, model_provider, threads=1):
         self.model_provider = model_provider
         self.threads = threads
         self._cache = {}
 
-    def __call__(self, model_name, device, threads):
+    def __call__(self, model_name, device, threads, temperature=1.0):
         device = device or "cpu"
-        k = (model_name, device)
+        k = (model_name, device, temperature)
         if k in self._cache:
             lp, idx = self._cache[k]
         else:
             logging.info(f"LLMPredictionServiceProvider getting a model({device=}, {threads=})\n")
             model, ctx, idx = self.model_provider(model_name=model_name, device=device, threads=threads)
-            lp = LLMPredictor(model, ctx)
+            lp = LLMPredictor(model, ctx, temperature=temperature)
             self._cache[k] = (lp, idx)
         return LLMPredictionService(lp, idx)
         
 
 llm_psp = LLMPredictionServiceProvider(provide_model, 1)
-def provide_prediction_service(model_name, device=None, threads=1):
-    return llm_psp(model_name, device, threads)
+def provide_prediction_service(model_name, device=None, threads=1, temperature=1.0):
+    return llm_psp(model_name, device, threads, temperature=temperature)

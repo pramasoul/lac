@@ -473,8 +473,9 @@ def main():
     logging.debug(f"{args=}")
 
     lacfile_args = { 'model_name': args.model,
-                      'device': args.device,
-                      'threads': args.threads,
+                     'device': args.device,
+                     'threads': args.threads,
+                     'temperature': args.temperature,
     }
                       
     chunk_size = io.DEFAULT_BUFFER_SIZE

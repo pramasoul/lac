@@ -25,7 +25,9 @@ from unittest.mock import mock_open
 
 import tok_compressor as tc
 import lactok_compressor as latc
-from lac_llm import FlatPredictionService, CountingPredictionService
+from lactok_compressor import LACTokCompressor, LACTokDecompressor
+
+#from lac_llm import FlatPredictionService, CountingPredictionService
 
 
 # The test configurations to choose from (source-configured)
@@ -171,10 +173,10 @@ def test_bits_to_bytes_to_bits():
 #     return LACT_args
 
 # def LTC(*args, **kwargs):
-#     return latc.LACTokCompressor(*args, **kwargs, **LACT_args)
+#     return LACTokCompressor(*args, **kwargs, **LACT_args)
 
 # def LTD(*args, **kwargs):
-#     return latc.LACTokDecompressor(*args, **kwargs, **LACT_args)
+#     return LACTokDecompressor(*args, **kwargs, **LACT_args)
 
 
 # logging.info(f"{configurations=}")
@@ -192,11 +194,11 @@ def lact_args(model_name, device, threads):
 
 def LTC(*args, **kwargs):
     lact_args = kwargs.pop('lact_args', {})
-    return latc.LACTokCompressor(*args, **kwargs, **lact_args)
+    return LACTokCompressor(*args, **kwargs, **lact_args)
 
 def LTD(*args, **kwargs):
     lact_args = kwargs.pop('lact_args', {})
-    return latc.LACTokDecompressor(*args, **kwargs, **lact_args)
+    return LACTokDecompressor(*args, **kwargs, **lact_args)
 
 
 @pytest.mark.compressed_data
@@ -214,9 +216,9 @@ def test_compress_empty(lact_args):
 def test_decompress_empty(lact_args):
     #compressed = b"\xfe\xfe\xff\xffThat's all, folks!"
     #compressed = b"\xfe\xfe\xff\xc0That's all, folks!"
-    c = LTC(lact_args=lact_args)
+    c = LACTokCompressor(**lact_args)
     compressed = c.compress("") + c.flush()
-    d = LTD(lact_args=lact_args)
+    d = LACTokDecompressor(**lact_args)
     decompressed = d.decompress(compressed)
     assert decompressed == b""
 
@@ -241,8 +243,8 @@ company preparing a proprietary commercial software product may seem
 much less reasonable for a free software or open source project."""
 
 def compress_decompress_test(text, lact_args):
-    c = LTC(lact_args=lact_args)
-    d = LTD(lact_args=lact_args)
+    c = LACTokCompressor(**lact_args)
+    d = LACTokDecompressor(**lact_args)
     compressed = c.compress(text) + c.flush()
     decompressed = d.decompress(compressed)
     if type(text) is str: text = text.encode("utf8")
@@ -256,7 +258,7 @@ def test_cd_short(lact_args):
 
 def test_cd_short_nl(lact_args):
     for c,d in ((tc.TokCompressor(), tc.TokDecompressor()),
-                (LTC(lact_args=lact_args),LTD(lact_args=lact_args))):
+                (LACTokCompressor(**lact_args),LACTokDecompressor(**lact_args))):
         text = b"\n"
         zbody = c.compress(text)
         ztail = c.flush()
@@ -265,7 +267,7 @@ def test_cd_short_nl(lact_args):
 
 def test_cd_short_2nl(lact_args):
     for c,d in ((tc.TokCompressor(),tc.TokDecompressor()),
-                (LTC(lact_args=lact_args),LTD(lact_args=lact_args))):
+                (LACTokCompressor(**lact_args),LACTokDecompressor(**lact_args))):
         text = b"\n\n"
         zbody = c.compress(text)
         ztail = c.flush()
@@ -279,12 +281,12 @@ def test_cd_medium(medium_text, lact_args):
     compress_decompress_test(medium_text, lact_args)
 
 def cd_char_at_a_time_test(text, lact_args):
-    comp = LTC(lact_args=lact_args)
+    comp = LACTokCompressor(**lact_args)
     compressed = b"".join(comp.compress(char) for char in text) + comp.flush()
-    decompressed = LTD(lact_args=lact_args).decompress(compressed)
+    decompressed = LACTokDecompressor(**lact_args).decompress(compressed)
     if type(text) is str: text = text.encode("utf8")
     assert text == decompressed
-    decomp = LTD(lact_args=lact_args)
+    decomp = LACTokDecompressor(**lact_args)
     decompressed = b"".join(decomp.decompress(bytes([b])) for b in compressed)
     assert text == decompressed
 
@@ -312,7 +314,7 @@ def like_from_tlacz_test(size, lact_args):
             break
     assert len(text) == size
     #BIG_DATA = lac.compress(BIG_TEXT, compresslevel=1)
-    comp = LTC(lact_args=lact_args)
+    comp = LACTokCompressor(**lact_args)
     data = comp.compress(text, compresslevel=1)
     logging.debug(f"pre-flush {comp=}")
     data += comp.flush()
@@ -347,7 +349,7 @@ def test_find_tok_difference_in_compressed(lact_args):
         data_hold = comp_hold.compress(input_data, compresslevel=1) + comp_hold.flush()
         comp_minbuf = LTC(tok_mode = "buffer minimum for correct",save_toks=1, lact_args=lact_args)
         data_minbuf = comp_minbuf.compress(input_data, compresslevel=1) + comp_minbuf.flush()
-        decomp = LTD(lact_args=lact_args)
+        decomp = LACTokDecompressor(**lact_args)
         decompressed = decomp.decompress(data_hold)
 
         comp_lbl.predictor.restart()
@@ -365,7 +367,7 @@ def test_find_tok_difference_in_compressed(lact_args):
         
         assert decompressed == input_data
         assert data_hold == data_minbuf
-        assert LTD(lact_args=lact_args).decompress(data_lbl) == input_data
+        assert LACTokDecompressor(**lact_args).decompress(data_lbl) == input_data
         #assert data_lbl == data_hold == data_minbuf
 
         # logging.info(f"pre-flush {comp=} {len(data)=}")
@@ -385,12 +387,12 @@ def test_like_tlacz_write_read_with_pathlike_file(tmp_path, lact_args):
 
 
 def like_tlacz_write_read_with_pathlike_file_test(input_data, lact_args):
-    comp = LTC(lact_args=lact_args)
+    comp = LACTokCompressor(**lact_args)
     data = comp.compress(input_data, compresslevel=1)
     logging.info(f"pre-flush {comp=} {len(data)=}")
     data += comp.flush()
     logging.info(f"post-flush {comp=} {len(data)=}")
-    decomp = LTD(lact_args=lact_args)
+    decomp = LACTokDecompressor(**lact_args)
     decompressed = decomp.decompress(data)
     if decompressed != input_data:
         logging.info(f"{input_data[-50:]}")
@@ -413,11 +415,25 @@ def test_like_tlacz_multi_stream_ordering(lact_args):
     #     bz2f.write(data2)
     # with LacFile(filename) as bz2f:
     #     assert bz2f.read() == data1 + data2
-    comp = LTC(lact_args=lact_args)
+    comp = LACTokCompressor(**lact_args)
     data = comp.compress(data1, compresslevel=1) + comp.flush()
-    comp = LTC(lact_args=lact_args)
+    comp = LACTokCompressor(**lact_args)
     data += comp.compress(data2, compresslevel=1) + comp.flush()
-    decomp = LTD(lact_args=lact_args)
+    decomp = LACTokDecompressor(**lact_args)
     decompressed = decomp.decompress(data)
     assert decompressed == data1 + data2
 
+
+def test_compress_decompress_temperatures(medium_text, lact_args):
+    text = medium_text
+    temperatures = (0.5, 1.0, 2.0)
+    comps = []
+    for T in temperatures:
+        c = LACTokCompressor(**lact_args, temperature=T)
+        comps.append(c.compress(text) + c.flush())
+    assert all(len(v)>0 for v in comps)
+    assert min(len(v) for v in comps) < max(len(v) for v in comps)
+    for T, compressed in zip(temperatures, comps):
+        d = LACTokDecompressor(**lact_args, temperature=T)
+        decompressed = d.decompress(compressed)
+        assert text == decompressed.decode('utf8')
