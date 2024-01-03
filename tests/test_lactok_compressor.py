@@ -186,6 +186,10 @@ def test_bits_to_bytes_to_bits():
 #     return request.param
 
 @pytest.fixture
+def lac_magic_bytes():
+    return b'2\x82\xc2Z'
+
+@pytest.fixture
 def lact_args(model_name, device, threads):
     return { "model_name": model_name,
              "device": device,
@@ -201,15 +205,17 @@ def LTD(*args, **kwargs):
     return LACTokDecompressor(*args, **kwargs, **lact_args)
 
 
+#@pytest.mark.skip(reason="Dependent on header format")
 @pytest.mark.compressed_data
-def test_compress_empty(lact_args):
+def test_compress_empty(lact_args, lac_magic_bytes):
     c = LTC(lact_args=lact_args)
     compressed = c.compress("") + c.flush()
     #assert compressed == b"\xfe\xfe\xff\xc0That's all, folks!"
-    assert compressed.startswith(b"\xfe\xfe")
+    #assert compressed.startswith(b"\xfe\xfe")
+    assert compressed.startswith(lac_magic_bytes)
     assert compressed.endswith(b"That's all, folks!")
-    assert compressed[2] == b"\xff"[0]
-    assert len(compressed) == 4 + len(b"That's all, folks!")
+    #assert compressed[2] == b"\xff"[0]
+    #assert len(compressed) == 4 + len(b"That's all, folks!")
 
     
 #@pytest.mark.compressed_data

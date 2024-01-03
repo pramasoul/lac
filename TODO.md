@@ -14,6 +14,7 @@
   * [ ] Clean up profusion and formats
   * [ ] Make them appropriately enablable perhaps by debug level
   * [x] --log LEVEL command line arg
+* [ ] Replace mentions of bzip2 and gzip
 
 ## Command-line
 * [x] Make tlacz -m MODEL feed thru to actual effect
@@ -55,7 +56,7 @@
 * [ ] Make compression-data for tests as importable data file that rebuilds
 * [ ] Test with other models
 * [x] Test as a shell-runnable command
-
+* [ ] Make a script to run all the relevant tests
 
 ## Lurking Trouble
 * [x] Fix idx endless growth in prediction service

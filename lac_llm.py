@@ -5,7 +5,6 @@ Compress using a trained model as a predictor
 The name ``lac'' is meant to suggest "LLM Arithmetic Coder"
 """
 import argparse
-import json
 import logging
 import os
 import pickle
@@ -27,89 +26,6 @@ from gpt_model import GPTConfig, GPT
 from pprint import pprint
 
 from config import SingletonConfig
-
-__version_bytes__ = bytes([0, 1])
-__version__ = f"{'.'.join(str(int(b)) for b in __version_bytes__)}"
-
-
-def magic_number_bytes():
-    bs = b"LACZ"
-    # bit-reverse the bytes
-    rv = bytes([int(bin(i | 256)[3:][::-1], 2) for i in bs])
-    try:
-        rv.decode()
-    except UnicodeDecodeError:
-        # This is where we want to be
-        pass
-    else:
-        raise ValueError(
-            "Our magic number is UTF decodable, which risks collision with real text files"
-        )
-    finally:
-        return rv
-
-
-def get_nvcc_version_info() -> dict[str]:
-    # FIXME: is nvcc necessarily present on any machine that can run our code? NO, e.g. cpu
-    try:
-        output = subprocess.check_output("nvcc --version", shell=True).decode()
-    except subprocess.CalledProcessError:
-        release_info = build_info = None
-    else:
-        # Regular expression to match the release and build information
-        release_pattern = r"release (\d+\.\d+), V(\d+\.\d+\.\d+)"
-        build_pattern = r"Build (cuda_\d+\.\d+\.r\d+\.\d+/compiler\.\d+_\d+)"
-
-        # Search for matches in the output
-        release_match = re.search(release_pattern, output)
-        build_match = re.search(build_pattern, output)
-
-        # Extract the matched groups if found
-        release_info = release_match.group(2) if release_match else None
-        build_info = build_match.group(1) if build_match else None
-
-    return release_info, build_info
-
-def get_python_version_number_string():
-    return sys.version.split()[0]
-
-
-def get_versions() -> dict[str]:
-    sys_cuda_release, sys_cuda_build = get_nvcc_version_info()
-    rv = {
-        "lacz": __version__,
-        "torch": torch.__version__,
-        "cuda": torch.version.cuda,
-        "cudnn": torch.backends.cudnn.version(),
-        "sys_cuda_build": sys_cuda_build,
-        "sys_cuda_release": sys_cuda_release,
-        "python": get_python_version_number_string(),
-        "np": np.__version__,
-    }
-    return rv
-
-
-def lacz_header() -> bytes:
-    rv = []
-    rv.append(magic_number_bytes())
-    rv.append(__version_bytes__)
-    vjz = zlib.compress(json.dumps(get_versions()).encode("utf-8"))
-    rv.append(struct.pack("!H", len(vjz)))  # prepend the length
-    rv.append(vjz)
-    rv = b"".join(rv)
-    return rv
-
-
-def get_header_and_advance(f):
-    magic_bytes = f.read(4)
-    if magic_bytes != magic_number_bytes():
-        raise ValueError(f"Wrong magic number for lacz (got {hexlify(magic_bytes)}, expected {hexlify(magic_number_bytes())}")
-    version_bytes = f.read(2)
-    zjson_header_len = struct.unpack("!H", f.read(2))[0]
-    logging.debug(f"{zjson_header_len=}")
-    vjz = f.read(zjson_header_len)
-    versions = json.loads(zlib.decompress(vjz))
-    return version_bytes, versions
 
 
 def provide_model(model_name="internal", device="cpu", threads=1):
