@@ -48,7 +48,7 @@ def test_w_cuda3(outf):
            ("tlacz", "gpt2-xl"),
            ("tlac", "gpt2-xl"),
     ]
-    rcs = [thing_test(outf, thing, f"--device cuda:3 --model {model}") for thing, model in tms]
+    rcs = [thing_test(outf, thing, f"--device cuda:3 --model {model} -n 2") for thing, model in tms]
     assert not any(rcs)
 
 

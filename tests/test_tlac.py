@@ -178,6 +178,7 @@ def test_tmp_dir_s(tmp_dir_s):
 def lac_name():
     return "./tlacz.py"
 
+# Create a short.lacz file for multiple subsequent tests
 @pytest.fixture(scope="session")
 def short_lacz_c(lac_name, short_text, tmp_dir_s):
     file_path = tmp_dir_s / "short_c.lacz"
@@ -390,6 +391,7 @@ def test_compress_foo_bar(tmp_path, lac_name):
     ).decode()
     foo_lacz = tmp_path / "foo.lacz"
     bar_lacz = tmp_path / "bar.lacz"
+    assert foo_lacz.read_bytes() != bar_lacz.read_bytes()
     assert len(foo_lacz.read_bytes()) > 4
     assert len(bar_lacz.read_bytes()) > 4
     decompress_out = subprocess.check_output(
@@ -412,6 +414,88 @@ def test_compress_foo_bar(tmp_path, lac_name):
     ).decode()
     assert foo.read_text(encoding="utf-8") == "This is foo"
     assert bar.read_text(encoding="utf-8") == "This is bar"
+
+def test_compress_bar_foo(tmp_path, lac_name):
+    # lac foo bar => compress foo to foo.lacz, and bar to bar.lacz
+    foo = tmp_path / "foo"
+    foo.write_text("This is foo")
+    bar = tmp_path / "bar"
+    bar.write_text("This is bar")
+    compress_out = subprocess.check_output(
+        f"{lac_name} {bar} {foo}", shell=True
+    ).decode()
+    foo_lacz = tmp_path / "foo.lacz"
+    bar_lacz = tmp_path / "bar.lacz"
+    assert foo_lacz.read_bytes() != bar_lacz.read_bytes()
+    assert len(foo_lacz.read_bytes()) > 4
+    assert len(bar_lacz.read_bytes()) > 4
+    decompress_out = subprocess.check_output(
+        f"{lac_name} -d {foo_lacz} --stdout", shell=True
+    ).decode()
+    assert decompress_out == "This is foo"
+    decompress_out = subprocess.check_output(
+        f"{lac_name} -d {bar_lacz} --stdout", shell=True
+    ).decode()
+    assert decompress_out == "This is bar"
+    # lac -d foo.lacz bar.lacz => decompress foo.lacz to foo, and bar.lacz to bar
+    foo.unlink()
+    with pytest.raises(FileNotFoundError):
+        foo.read_bytes()
+    bar.unlink()
+    with pytest.raises(FileNotFoundError):
+        bar.read_bytes()
+    decompress_out = subprocess.check_output(
+        f"{lac_name} -d {foo_lacz} {bar_lacz}", shell=True
+    ).decode()
+    assert foo.read_text(encoding="utf-8") == "This is foo"
+    assert bar.read_text(encoding="utf-8") == "This is bar"
+
+def test_compress_foo_bar_baz(tmp_path, lac_name):
+    # lac foo bar => compress foo to foo.lacz, and bar to bar.lacz
+    foo = tmp_path / "foo"
+    foo.write_text("This is foo")
+    bar = tmp_path / "bar"
+    bar.write_text("This is bar")
+    baz = tmp_path / "baz"
+    baz.write_text("This is baz")
+    compress_out = subprocess.check_output(
+        f"{lac_name} {foo} {bar} {baz}", shell=True
+    ).decode()
+    foo_lacz = tmp_path / "foo.lacz"
+    bar_lacz = tmp_path / "bar.lacz"
+    baz_lacz = tmp_path / "baz.lacz"
+    assert foo_lacz.read_bytes() != bar_lacz.read_bytes() != baz_lacz.read_bytes()
+    assert len(foo_lacz.read_bytes()) > 4
+    assert len(bar_lacz.read_bytes()) > 4
+    assert len(baz_lacz.read_bytes()) > 4
+    decompress_out = subprocess.check_output(
+        f"{lac_name} -d {foo_lacz} --stdout", shell=True
+    ).decode()
+    assert decompress_out == "This is foo"
+    decompress_out = subprocess.check_output(
+        f"{lac_name} -d {bar_lacz} --stdout", shell=True
+    ).decode()
+    assert decompress_out == "This is bar"
+    decompress_out = subprocess.check_output(
+        f"{lac_name} -d {baz_lacz} --stdout", shell=True
+    ).decode()
+    assert decompress_out == "This is baz"
+    # lac -d foo.lacz bar.lacz => decompress foo.lacz to foo, and bar.lacz to bar
+    foo.unlink()
+    with pytest.raises(FileNotFoundError):
+        foo.read_bytes()
+    bar.unlink()
+    with pytest.raises(FileNotFoundError):
+        bar.read_bytes()
+    baz.unlink()
+    with pytest.raises(FileNotFoundError):
+        baz.read_bytes()
+    decompress_out = subprocess.check_output(
+        f"{lac_name} -d {foo_lacz} {bar_lacz} {baz_lacz}", shell=True
+    ).decode()
+    assert foo.read_text(encoding="utf-8") == "This is foo"
+    assert bar.read_text(encoding="utf-8") == "This is bar"
+    assert baz.read_text(encoding="utf-8") == "This is baz"
 
 
 def test_compress_foo_bar_to_stdout(tmp_path, lac_name):

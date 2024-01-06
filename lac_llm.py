@@ -5,6 +5,7 @@ Compress using a trained model as a predictor
 The name ``lac'' is meant to suggest "LLM Arithmetic Coder"
 """
 import argparse
+import copy
 import logging
 import os
 import pickle
@@ -17,15 +18,33 @@ import zlib
 
 import numpy as np
 import torch
+from torch.cuda.amp import autocast
 from torch.nn import functional as F
 import tiktoken
 
 from binascii import hexlify
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from gpt_model import GPTConfig, GPT
 from pprint import pprint
 
 from config import SingletonConfig
+
+config = SingletonConfig()
+
+def make_torch_deterministic():
+    # Attempt determinism
+    torch.use_deterministic_algorithms(True)
+    # https://docs.nvidia.com/cuda/cublas/index.html#results-reproducibility
+    # set a debug environment variable CUBLAS_WORKSPACE_CONFIG to :16:8
+    # (may limit overall performance) or :4096:8 (will increase library
+    # footprint in GPU memory by approximately 24MiB).
+    #if device_type == "cuda":
+    if True:
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    # torch.manual_seed(seed)
+    # torch.cuda.manual_seed_all(seed)
 
 
 def provide_model(model_name="internal", device="cpu", threads=1):
@@ -33,7 +52,7 @@ def provide_model(model_name="internal", device="cpu", threads=1):
     HACKED by TAS
     After Karpathy
     """
-    config = SingletonConfig()
+    #config = SingletonConfig()
     verbose = hasattr(config, "verbose") and config.verbose
     logging.debug(f"provide_model({model_name=}, {device=}, {threads=}, {verbose=})")
     # -----------------------------------------------------------------------------
@@ -63,20 +82,8 @@ def provide_model(model_name="internal", device="cpu", threads=1):
     #     logging.debug(f"provide_model: {k} = {v}")
     #     exec(f"{k} = {v}")
 
-    device_type = (
-        "cuda" if "cuda" in device else "cpu"
-    )  # for later use in torch.autocast
-
-    # Attempt determinism
-    torch.use_deterministic_algorithms(True)
-    # https://docs.nvidia.com/cuda/cublas/index.html#results-reproducibility
-    # set a debug environment variable CUBLAS_WORKSPACE_CONFIG to :16:8
-    # (may limit overall performance) or :4096:8 (will increase library
-    # footprint in GPU memory by approximately 24MiB).
-    if device_type == "cuda":
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+    device = torch.device(device)
+    device_type = device.type
 
     ptdtype = {
         "float32": torch.float32,
@@ -84,13 +91,14 @@ def provide_model(model_name="internal", device="cpu", threads=1):
         "float16": torch.float16,
     }[dtype]
 
-    ctx = (
-        nullcontext()
-        if device_type == "cpu"
-        else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
-    )
+    # ctx = (
+    #     nullcontext()
+    #     if device_type == "cpu"
+    #     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
+    # )
 
-    torch.set_num_threads(threads)
+    # MOVED, and doing it here too causes trouble with cpu model
+    # consistency: torch.set_num_threads(threads)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
@@ -149,7 +157,53 @@ def provide_model(model_name="internal", device="cpu", threads=1):
     start_ids = encode(start)
     x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
 
-    return model, ctx, x
+    return model, autocast(), x
+
+
+def provide_model_on_cpu(model_name):
+    logging.debug(f"provide_model_on_cpu({model_name})")
+    model, _, _ = provide_model(model_name, "cpu")
+    # assert host_device_of(model) == torch.device(device), \
+    #     f"provide_just_model expected provide_model to return a model on {device}, but it's on {host_device_of(model)}"
+    return model
+
+
+def host_device_of(model):
+    # For models not distributed across multiple devices
+    return next(model.parameters()).device
+
+
+class ModelOnDeviceCache:
+    # A caching model-providing context manager
+    # Initialized with a function that provides a model on the CPU given the model name
+    # Callable as a context manager with the model_name and device
+    # Creates, caches, moves models as necessary
+    # FUTURE: manages gross memory use and cache evictions
+    def __init__(self, model_on_cpu_provider):
+        self.model_on_cpu_provider = model_on_cpu_provider
+        self.cpu_model_cache = {}
+        self.model_device_cache = {}
+
+    @contextmanager
+    def __call__(self, model_name, device="cpu"):
+        # FIXME: manage out-of-memory with refcounting and lru eviction
+        #log.debug(f"ModelOnDeviceCache instance called with {model_name=}, {device=}")
+        device = torch.device(device)
+        if (model_name, device) in self.model_device_cache:
+            model_on_device = self.model_device_cache[(model_name, device)]
+        else:
+            if model_name in self.cpu_model_cache:
+                model_on_cpu = self.cpu_model_cache[model_name]
+            else:
+                model_on_cpu = self.model_on_cpu_provider(model_name)
+                self.cpu_model_cache[model_name] = model_on_cpu
+            model_on_device = copy.deepcopy(model_on_cpu).to(device)
+            self.model_device_cache[(model_name, device)] = model_on_device
+
+            # assert host_device_of(model_on_device) == torch.device(device), \
+            # f"ModelOnDeviceCache expected model on {device}, but it's on {host_device_of(model_on_device)}"
+        yield model_on_device
+
 
 
 ################################################################
@@ -197,16 +251,19 @@ class CountingPredictionService(PredictionService):
         return self.pdf
 
 
-
 class LLMPredictionService(PredictionService):
+    # Init with an LLMPredictor and a starting idx
+    # .probabilities gets the (unnormalized) probability array for the possible token values
+    # accept(tok) to update the history, before getting the new .probabilities given the new tok
+
     def __init__(self, llm_predictor, idx=torch.tensor([[198]])):
         self.p = llm_predictor
         self.idx = idx.to(self.p.device)
         self._temp_idx = None
 
     def accept(self, tok):
-        assert tok < self.p.model.config.vocab_size
-        if self.idx.size(1) < self.p.model.config.block_size:
+        assert tok < self.p.model_config.vocab_size
+        if self.idx.size(1) < self.p.model_config.block_size:
             self.idx = torch.cat((self.idx, torch.tensor([[tok]]).to(self.idx.device)), 1)
         else:
             if self._temp_idx is None:
@@ -216,7 +273,7 @@ class LLMPredictionService(PredictionService):
             t[..., :-1] = self.idx[..., 1:]
             # Replace the last element with the new token
             t[..., -1] = tok
-            self.idx.copy_(t)   # Should ping-pong between them instead?
+            self.idx.copy_(t)   # FIXME: Should ping-pong between them instead?
 
     @property
     def probabilities(self):
@@ -226,54 +283,57 @@ class LLMPredictionService(PredictionService):
 
 
 class LLMPredictor:
-    def __init__(self, model, ctx, temperature=1.0):
-        self.model = model
-        self.ctx = ctx
+    # Init with a ModelOnDeviceCache and model name, device and temperature on creation
+    # Callable, returning probabilities using the MODC to transiently obtain the model
+    def __init__(self, mc, model_name, device, temperature=1.0):
+        self.mc = mc
+        self.model_name = model_name
+        self.device = torch.device(device)
         self.temperature = temperature
-        self.device = model.lm_head.weight.device
+        self._model_config = None
+        make_torch_deterministic() # FIXME: where should this really be?
 
     def __call__(self, idx):
-        idx = idx.to(self.device)
-        assert idx.device == self.device
-        with torch.no_grad():
-            with self.ctx:
-                # if the sequence context is growing too long we must crop it at block_size
-                idx_cond = (
-                    idx
-                    if idx.size(1) <= self.model.config.block_size
-                    else idx[:, -self.model.config.block_size :]
-                )
-                # forward the model to get the logits for the index in the sequence
-                assert idx_cond.device == self.device
-                logits, _ = self.model(idx_cond)
-                # pluck the logits at the final step and scale by desired temperature
-                logits = logits[:, -1, :] / self.temperature
-                # apply softmax to convert logits to (normalized) probabilities
-                probabilities = F.softmax(logits, dim=-1)[-1]
-        return probabilities.cpu()
+        with torch.no_grad(), autocast(), self.mc(self.model_name, self.device) as model:
+            #self.device = device = self.device or host_device_of(model)
+            idx = idx.to(self.device)
+
+            # if the sequence context is growing too long we must crop it at block_size
+            idx_cond = (
+                idx
+                if idx.size(1) <= model.config.block_size
+                else idx[:, -model.config.block_size :]
+            )
+            # forward the model to get the logits for the index in the sequence
+            # assert idx_cond.device == self.device
+            logits, _ = model(idx_cond)
+        # pluck the logits at the final step and scale by desired temperature
+        logits = logits[:, -1, :] / self.temperature
+        # apply softmax to convert logits to (normalized) probabilities
+        probabilities = F.softmax(logits, dim=-1)[-1]
+        return probabilities  #.cpu()
+
+    @property
+    def model_config(self):
+        if self._model_config is None:
+            with self.mc(self.model_name, self.device) as model:
+                self._model_config = copy.deepcopy(model.config)
+        return self._model_config
 
 
+enc = tiktoken.get_encoding("gpt2")
+mdc = ModelOnDeviceCache(provide_model_on_cpu)
+def model_provider(model_name, device, threads):
+    model = mdc(model_name, device)
+    start_ids = "\n"
+    x = torch.tensor(enc.encode(start_ids), dtype=torch.long, device=device)[None, ...]
+    return model, nullcontext(), x
 
-class LLMPredictionServiceProvider:
-    # FIXME: where should threads be passed, kept, used?
-    def __init__(self, model_provider, threads=1):
-        self.model_provider = model_provider
-        self.threads = threads
-        self._cache = {}
-
-    def __call__(self, model_name, device, threads, temperature=1.0):
-        device = device or "cpu"
-        k = (model_name, device, temperature)
-        if k in self._cache:
-            lp, idx = self._cache[k]
-        else:
-            logging.info(f"LLMPredictionServiceProvider getting a model({device=}, {threads=})\n")
-            model, ctx, idx = self.model_provider(model_name=model_name, device=device, threads=threads)
-            lp = LLMPredictor(model, ctx, temperature=temperature)
-            self._cache[k] = (lp, idx)
-        return LLMPredictionService(lp, idx)
-        
-
-llm_psp = LLMPredictionServiceProvider(provide_model, 1)
-def provide_prediction_service(model_name, device=None, threads=1, temperature=1.0):
-    return llm_psp(model_name, device, threads, temperature=temperature)
+def provide_prediction_service(model_name, device, threads=1, temperature=1.0) -> LLMPredictionService:
+    logging.debug(f"provide_prediction_service({model_name}, {device}, {threads=}, {temperature=})")
+    torch.set_num_threads(threads) # FIXME: Move this to the right place
+    if "threads" in config.debug:
+        import pdb
+        pdb.set_trace()
+    predictor = LLMPredictor(mdc, model_name, device, temperature)
+    return LLMPredictionService(predictor)

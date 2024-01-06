@@ -138,13 +138,13 @@ class TokPredictor(PDFPredictor):
     
     def restart(self):
         self.prediction_service.restart()
-        self.set_cdf_from_pdf(self.prediction_service.probabilities)
+        self.set_cdf_from_pdf(self.prediction_service.probabilities.cpu())
         self.accepts = 0
 
     def accept(self, tok):
         assert 0 <= tok <= self.max_token
         self.prediction_service.accept(tok)
-        self.set_cdf_from_pdf(self.prediction_service.probabilities)
+        self.set_cdf_from_pdf(self.prediction_service.probabilities.cpu())
         self.accepts += 1
 
 

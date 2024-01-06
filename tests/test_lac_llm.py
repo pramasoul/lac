@@ -101,10 +101,10 @@ def model_ctx_idx():
 
 def test_llm_predictor(model_ctx_idx):
     model, ctx, idx = model_ctx_idx
-    lp = ll.LLMPredictor(model, ctx)
+    lp = ll.LLMPredictor(ll.mdc, "internal", "cpu")
     assert np.allclose(lp(torch.tensor([[42]])), lp(torch.tensor([[42]])))
     assert not np.allclose(lp(torch.tensor([[42]])), lp(torch.tensor([[137]])))
-    lp2 = ll.LLMPredictor(model, ctx)
+    lp2 = ll.LLMPredictor(ll.mdc, "internal", "cpu")
     assert np.allclose(lp(torch.tensor([[42]])), lp2(torch.tensor([[42]])))
     assert np.allclose(lp(torch.tensor([[137]])), lp2(torch.tensor([[137]])))
     assert np.allclose(lp(torch.tensor([[137, 196]])), lp2(torch.tensor([[137, 196]])))
@@ -112,9 +112,9 @@ def test_llm_predictor(model_ctx_idx):
 
 
 def test_llm_prediction_service_1(model_ctx_idx):
-    model, ctx, idx = model_ctx_idx
-    lp = ll.LLMPredictor(model, ctx)
-    lps = ll.LLMPredictionService(lp, idx)
+    #model, ctx, idx = model_ctx_idx
+    lp = ll.LLMPredictor(ll.mdc, "internal", "cpu")
+    lps = ll.LLMPredictionService(lp)
     p = lps.probabilities
     tk_log = []
     tk = torch.topk(p, 3)
@@ -153,6 +153,9 @@ def test_llm_prediction_service_multi_1():
     # two different prediction services
     lps1 = ll.provide_prediction_service("internal", "cuda:2")
     lps2 = ll.provide_prediction_service("internal", "cuda:2")
+    # lp = ll.provide_predictor("internal", "cuda:2")
+    # lps1 = ll.LLMPredictionService(lp)
+    # lps2 = ll.LLMPredictionService(lp)
     assert lps1 != lps2
 
     # Newborn twins
@@ -196,8 +199,6 @@ def test_llm_prediction_service_multi_1():
     assert not p1.allclose(p2)
 
 
-
-
 @pytest.mark.skip(reason="unfinished")
 def test_llm_prediction_service_multi_2():
     n = 3
@@ -234,7 +235,36 @@ def test_counting_prediction_service():
         assert np.allclose(np.sum(ps.probabilities), n * 0.01)
 
         
+import time
+mdc = ll.ModelOnDeviceCache(ll.provide_model_on_cpu)
+@pytest.mark.slow
+def test_MODC():
+    times = [time.time()]
 
+    for model, device, tmin, tmax in [ ("internal",    "cpu",    1.0,   10.0),
+                                       ("internal",    "cpu",    0.0,    0.01),
+                                       ("internal",    "cuda:0", 0.1,    1.0),
+                                       ("internal",    "cuda:1", 0.1,    1.0),
+                                       ("internal",    "cuda:0", 0.0,    0.01),
+                                       ("gpt2",        "cuda:0", 0.1,   10.0),
+                                       ("gpt2",        "cuda:1", 0.01,   1.0),
+                                       ("gpt2-medium", "cuda:1", 1.0,   20.0),
+                                       ("gpt2-medium", "cuda:2", 0.1,    2.0),
+                                       ("gpt2-large",  "cuda:2", 1.0,   40.0),
+                                       ("gpt2-xl",     "cuda:3", 1.0,   80.0),
+                                       ("gpt2-xl",     "cuda:0", 0.1,    5.0),
+                                       ("gpt2-xl",     "cuda:3", 0.0,    0.01),
+    ]:
+        with mdc(model, device) as m:
+            times.append(time.time())
+            dt = times[-1] - times[-2]
+            logging.debug(f"Model {model} layers {len(m.transformer.h)} device {ll.host_device_of(m)} in {dt} sec\n")
+            assert tmin <= dt <= tmax
+
+
+
+# def test_fail():
+#     assert 0
 
 
     

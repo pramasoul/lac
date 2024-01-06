@@ -15,6 +15,8 @@
   * [ ] Make them appropriately enablable perhaps by debug level
   * [x] --log LEVEL command line arg
 * [ ] Replace mentions of bzip2 and gzip
+* [ ] Rationalize defaults in function definitions
+* [ ] Remove spurious `ctx`
 
 ## Command-line
 * [x] Make tlacz -m MODEL feed thru to actual effect
