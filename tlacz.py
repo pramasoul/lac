@@ -36,17 +36,26 @@ _MODE_WRITE = 3
 
 class LacFile(_compression.BaseStream):
 
-    """A file object providing transparent bzip2 (de)compression.
+    """A file object providing transparent lac (de)compression.
 
-    A BZ2File can act as a wrapper for an existing file object, or refer
+    A LacFile can act as a wrapper for an existing file object, or refer
     directly to a named file on disk.
 
-    Note that BZ2File provides a *binary* file interface - data read is
-    returned as bytes, and data to be written should be given as bytes.
+    Lac uses a Large-Language Model as a predictor of token
+    probabilities.  (An arithmetic coder uses these probabilities to
+    entropy-encode/decode the actual tokens.) As such, it expects
+    text-like content to feed the selected model's tokenizer.
+
+    Note that LacFile provides a *binary* file interface - data read
+    is returned as bytes, and data to be written should be given as
+    bytes.  This is a consequence of inheriting from the
+    Lib/_compression.py library, which Lib/gzip.py and Lib/gzip2.py
+    also use to provide a framework of common functionality.
+
     """
 
     def __init__(self, filename, mode="r", **kwargs):
-        """Open a bzip2-compressed file.
+        """Open a lac-compressed file.
 
         If filename is a str, bytes, or PathLike object, it gives the
         name of the file to be opened. Otherwise, it should be a file
@@ -283,7 +292,7 @@ class LacFile(_compression.BaseStream):
 def open(
         filename, mode="rb", encoding=None, errors=None, newline=None, **kwargs
 ):
-    """Open a bzip2-compressed file in binary or text mode.
+    """Open a lac-compressed file in binary or text mode.
 
     The filename argument can be an actual filename (a str, bytes, or
     PathLike object), or an existing file object to read from or write
@@ -293,11 +302,11 @@ def open(
     "ab" for binary mode, or "rt", "wt", "xt" or "at" for text mode.
     The default mode is "rb", and the default compresslevel is 9.
 
-    For binary mode, this function is equivalent to the BZ2File
-    constructor: BZ2File(filename, mode, compresslevel). In this case,
+    For binary mode, this function is equivalent to the LacFile
+    constructor: LacFile(filename, mode, compresslevel). In this case,
     the encoding, errors and newline arguments must not be provided.
 
-    For text mode, a BZ2File object is created, and wrapped in an
+    For text mode, a LacFile object is created, and wrapped in an
     io.TextIOWrapper instance with the specified encoding, error
     handling behavior, and line ending(s).
 
@@ -347,7 +356,7 @@ def decompress(data, **kwargs):
             res = decomp.decompress(data)
         except OSError:
             if results:
-                break  # Leftover data is not a valid bzip2 stream; ignore it.
+                break  # Leftover data is not a valid lac stream; ignore it.
             else:
                 raise  # Error on the first iteration; bail out.
         results.append(res)

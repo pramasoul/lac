@@ -1,10 +1,11 @@
 # lac to-do list
 
 ## General
-* Solve FIXME's
+* [ ] Solve FIXME's
+* [ ] Change to text mode rather than bzip2's binary
 
 ## Cleanup
-* [x] Take out compress_level cruft
+* [x] Take out compress_level 1-9 cruft
   * [x] remove mentions in source
   * [x] remove tests for compresslevel
     * [x] from test_tlacz
@@ -17,6 +18,8 @@
 * [ ] Replace mentions of bzip2 and gzip
 * [ ] Rationalize defaults in function definitions
 * [ ] Remove spurious `ctx`
+* [ ] Does LACTokDecompressor still need token_buffer?
+* [ ] Clean up the LACTokDecompressor save_toks?
 
 ## Command-line
 * [x] Make tlacz -m MODEL feed thru to actual effect

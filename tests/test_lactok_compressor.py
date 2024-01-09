@@ -163,31 +163,14 @@ def test_bits_to_bytes_to_bits():
         assert b2y(y2b((b))) == (b, [])
 
 
+@pytest.fixture
+def lac_magic_bytes():
+    return b'2\x82\xc2Z'
+
 # LACT_args = { "model_name": "internal",
 #               "device": "cuda:3",
 #               "threads": psutil.cpu_count(logical=False),
 # }
-
-# @pytest.fixture
-# def LACTok_args():
-#     return LACT_args
-
-# def LTC(*args, **kwargs):
-#     return LACTokCompressor(*args, **kwargs, **LACT_args)
-
-# def LTD(*args, **kwargs):
-#     return LACTokDecompressor(*args, **kwargs, **LACT_args)
-
-
-# logging.info(f"{configurations=}")
-
-# @pytest.fixture(params=configurations)
-# def lact_args(request):
-#     return request.param
-
-@pytest.fixture
-def lac_magic_bytes():
-    return b'2\x82\xc2Z'
 
 # This brings our command-line switches into arguments for LACTok
 # Note "model_name" is set with --model <name>
@@ -197,15 +180,6 @@ def lact_args(model_name, device, threads):
              "device": device,
              "threads": threads,
     }
-
-# def LTC(*args, **kwargs):
-#     lact_args = kwargs.pop('lact_args', {})
-#     return LACTokCompressor(*args, **kwargs, **lact_args)
-
-# def LTD(*args, **kwargs):
-#     lact_args = kwargs.pop('lact_args', {})
-#     return LACTokDecompressor(*args, **kwargs, **lact_args)
-
 
 #@pytest.mark.skip(reason="Dependent on header format")
 @pytest.mark.compressed_data

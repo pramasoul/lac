@@ -24,6 +24,7 @@ from lac_llm import PredictionService, FlatPredictionService, CountingPrediction
 from ac2_for_z import PDFPredictor, A_to_bin, A_from_bin
 
 from config import SingletonConfig
+config = SingletonConfig()
 #from dataclasses import dataclass
 
 #@dataclass
@@ -96,15 +97,27 @@ def get_versions() -> dict[str]:
     return rv
 
 
+# FIXME: decide on a header dictionary. Changes are breaking and will require
+# versioning and keeping all the prior ones available to interpret old headers.
+# header_zdict = b'{"lacz": "0.1", "torch": "2.0.1", "cuda": "11.8", "cudnn": 8700,'
+# ' "sys_cuda_build": "cuda_12.2.r12.2/compiler.33191640_0",'
+# ' "sys_cuda_release": "12.2.140", "python": "3.10.11", "np": "1.24.3"}'
+
+# Use an empty dict for now
+header_zdict = b""
+
 def lacz_header() -> bytes:
     rv = []
     rv.append(magic_number_bytes())
     rv.append(__version_bytes__)
-    vjz = zlib.compress(json.dumps(get_versions()).encode("utf-8"))
+    zc = zlib.compressobj(zdict=header_zdict)
+    vjz = zc.compress(json.dumps(get_versions()).encode("utf-8")) + zc.flush()
     rv.append(struct.pack("!H", len(vjz)))  # prepend the length
     rv.append(vjz)
     rv = b"".join(rv)
     return rv
+
+
 
 
 # FIXME: adapt & incorporate
@@ -154,7 +167,8 @@ class LACTokCompressor:
     def __init__(self,
                  encoding_name="gpt2",
                  model_name="internal",
-                 tok_mode="line-by-line",
+                 #tok_mode="line-by-line",
+                 tok_mode="all but last partial line",
                  device="cpu",
                  threads=1,
                  temperature=1.0,
@@ -166,6 +180,9 @@ class LACTokCompressor:
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
         logging.info(f"LAXTokCompressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
+        if "mem" in config.debug:
+            import pdb
+            pdb.set_trace()
         self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name=model_name,
                                                                                  device=device,
                                                                                  threads=threads,
@@ -467,7 +484,9 @@ class LACTokDecompressor:
         self.header = Thing()
         self.header.version_bytes = self.unused_data[4:6]
         vjz = self.unused_data[8:8+zjson_header_len]
-        self.header.versions = json.loads(zlib.decompress(vjz))
+        #self.header.versions = json.loads(zlib.decompress(vjz))
+        zd = zlib.decompressobj(zdict=header_zdict)
+        self.header.versions = json.loads(zd.decompress(vjz) + zd.flush())
         logging.debug(f"Header {self.header.version_bytes} {self.header.versions}")
         self.unused_data = self.unused_data[8+zjson_header_len:]
         return True
@@ -545,3 +564,35 @@ def tokens_to_stop_with_bits_consumed(decoder, bs, stop_token=None):
                 if v == stop_token:
                     return acc, n # discarding any tokens after stop
     return acc, n
+
+################################################################
+# Debugging aids
+
+def mem_used():
+    import os
+    import psutil
+
+    rv = Thing()
+
+    # Get the current process
+    rv.pid = process = psutil.Process(os.getpid())
+
+    # Virtual memory usage
+    rv.vm = irtual_memory_usage = process.memory_info().vms  # in bytes
+
+    # Resident Set Size (physical memory usage)
+    rv.rss = resident_memory_usage = process.memory_info().rss  # in bytes
+
+    total_virtual_memory = virtual_memory_usage
+    total_resident_memory = resident_memory_usage
+
+    # Include child processes
+    for child in process.children(recursive=True):
+        child_memory_info = child.memory_info()
+        total_virtual_memory += child_memory_info.vms
+        total_resident_memory += child_memory_info.rss
+
+    rv.total_vm = total_virtual_memory
+    rv.total_rss = total_resident_memory
+
+    return rv

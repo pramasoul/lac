@@ -22,6 +22,7 @@ import numpy as np
 from unittest.mock import mock_open
 
 import tlacz as lac
+from tlacz import LacFile
 
 
 # Configure logging
@@ -213,7 +214,15 @@ def test_lac_runnable(lac_name):
     assert out.startswith("usage: ")
 
 
+def test_lac_compress_LacFile_read_c(lac_name, short_lacz_c, short_text):
+    assert LacFile(short_lacz_c).read().decode('utf8') == short_text
+
+def test_lac_compress_LacFile_read_g(lac_name, short_lacz_g, short_text):
+    assert LacFile(short_lacz_g, device="cuda").read().decode('utf8') == short_text
+
+
     """
+Various ways lac can be invoked from the command line:
   * lac -o foo bar baz => error "-o/--output can only be used with a single input file"
   * lac - => compress stdin to stdout
   * lac -c - => compress stdin to stdout
