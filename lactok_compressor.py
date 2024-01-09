@@ -106,12 +106,19 @@ def get_versions() -> dict[str]:
 # Use an empty dict for now
 header_zdict = b""
 
-def lacz_header() -> bytes:
+def lacz_header(compressor) -> bytes:
     rv = []
     rv.append(magic_number_bytes())
     rv.append(__version_bytes__)
+    d = { "versions": get_versions(),
+          "encoding_name": compressor.encoding_name,
+          "model_name": compressor.model_name,
+          "device": compressor.device,
+          "threads": compressor.threads,
+          "temperature": compressor.temperature,
+    }
     zc = zlib.compressobj(zdict=header_zdict)
-    vjz = zc.compress(json.dumps(get_versions()).encode("utf-8")) + zc.flush()
+    vjz = zc.compress(json.dumps(d).encode("utf-8")) + zc.flush()
     rv.append(struct.pack("!H", len(vjz)))  # prepend the length
     rv.append(vjz)
     rv = b"".join(rv)
@@ -120,17 +127,17 @@ def lacz_header() -> bytes:
 
 
 
-# FIXME: adapt & incorporate
-def get_header_and_advance(f):
-    magic_bytes = f.read(4)
-    if magic_bytes != magic_number_bytes():
-        raise ValueError(f"Wrong magic number for lacz (got {hexlify(magic_bytes)}, expected {hexlify(magic_number_bytes())}")
-    version_bytes = f.read(2)
-    zjson_header_len = struct.unpack("!H", f.read(2))[0]
-    logging.debug(f"{zjson_header_len=}")
-    vjz = f.read(zjson_header_len)
-    versions = json.loads(zlib.decompress(vjz))
-    return version_bytes, versions
+# # FIXME: adapt & incorporate
+# def get_header_and_advance(f):
+#     magic_bytes = f.read(4)
+#     if magic_bytes != magic_number_bytes():
+#         raise ValueError(f"Wrong magic number for lacz (got {hexlify(magic_bytes)}, expected {hexlify(magic_number_bytes())}")
+#     version_bytes = f.read(2)
+#     zjson_header_len = struct.unpack("!H", f.read(2))[0]
+#     logging.debug(f"{zjson_header_len=}")
+#     vjz = f.read(zjson_header_len)
+#     versions = json.loads(zlib.decompress(vjz))
+#     return version_bytes, versions
 
 
 class TokPredictor(PDFPredictor):
@@ -174,6 +181,11 @@ class LACTokCompressor:
                  temperature=1.0,
                  save_toks=False):
         self.encoding_name = encoding_name
+        self.model_name = model_name
+        self.device = device
+        self.threads = threads
+        self.temperature = temperature
+
         self.tok_mode = tok_mode #DEBUG
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         if self.tok_mode == "buffer minimum for correct":
@@ -305,7 +317,7 @@ class LACTokCompressor:
 
     def _header(self):
         # return _HEADER
-        return lacz_header()
+        return lacz_header(self)
 
     def _footer(self):
         # FIXME
@@ -329,15 +341,16 @@ class LACTokDecompressor:
         if not isinstance(encoding_name, (str, bytes)):
             raise TypeError(f"encoding name is a {type(encoding_name)} want string")
         self.encoding_name = encoding_name
+        self.model_name = model_name
+        self.device = device
+        self.threads = threads  # FIXME: need this?
+        self.temperature = temperature
+
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
         logging.debug(f"LAXTokecmpressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
         assert device is not None
-        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name=model_name,
-                                                                                 device=device,
-                                                                                 threads=threads,
-                                                                                 temperature=temperature,
-        ))
+        self.predictor = None   # Defer creation until we've parsed the header
         logging.debug(f"LACTokDecompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.dtype = np.dtype('<u2')
         self._restart()
@@ -352,7 +365,7 @@ class LACTokDecompressor:
         self.unused_data = b""
         self.token_buffer = []
         self.output_buffer = b""
-        self._restart_AC()
+        self.predictor and self._restart_AC()
         self._eos = False
         self.state = "Expecting header"
 
@@ -408,7 +421,14 @@ class LACTokDecompressor:
         if self.state == "Expecting header":
             if self.check_for_header_and_process():
                 self.state = "Expecting data or footer"
-
+                if self.predictor is None: # We deferred creating the predictor until we had the header info
+                    self.predictor = TokPredictor(self.eot_token,
+                                                  provide_prediction_service(model_name=self.model_name,
+                                                                             device=self.device,
+                                                                             threads=self.threads,
+                                                                             temperature=self.temperature,
+                                                  ))
+                    self._restart_AC()
         if self.state == "Expecting data or footer":
             new_toks, n_bits = tokens_to_stop_with_bits_consumed(self.b2a, self.unused_data, self.eot_token)
             if self.debug_save_toks:
@@ -486,8 +506,16 @@ class LACTokDecompressor:
         vjz = self.unused_data[8:8+zjson_header_len]
         #self.header.versions = json.loads(zlib.decompress(vjz))
         zd = zlib.decompressobj(zdict=header_zdict)
-        self.header.versions = json.loads(zd.decompress(vjz) + zd.flush())
-        logging.debug(f"Header {self.header.version_bytes} {self.header.versions}")
+        header_dict = json.loads(zd.decompress(vjz) + zd.flush())
+        logging.debug(f"Header {self.header.version_bytes} {header_dict}")
+        for k in ( "encoding_name",
+                   "model_name",
+                   "device",
+                   "threads",
+                   "temperature",
+        ):
+            if k in header_dict:
+                self.__dict__[k] = header_dict[k]
         self.unused_data = self.unused_data[8+zjson_header_len:]
         return True
 

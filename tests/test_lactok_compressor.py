@@ -3,6 +3,7 @@
 #import array
 #import functools
 #import io
+import copy
 import logging
 #import os
 #import pathlib
@@ -419,3 +420,20 @@ def test_compress_decompress_temperatures(medium_text, lact_args):
         d = LACTokDecompressor(**lact_args, temperature=T)
         decompressed = d.decompress(compressed)
         assert text == decompressed.decode('utf8')
+
+
+def test_decompress_respecting_header(medium_text, lact_args):
+    text = medium_text
+    # compress differently than the lact args:
+    d = copy.copy(lact_args)
+    d["model_name"] = ["gpt2", "internal"][lact_args["model_name"] == "gpt2"]
+    d["device"] = ["cuda", "cpu"][lact_args["device"] == "cuda"]
+    ## if d["threads"] >=32:
+    d["temperature"] = "temperature" in lact_args and lact_args["temperature"] + 1.0 or 0.5
+    comp = LACTokCompressor(**d)
+    data = comp.compress(text, compresslevel=1) + comp.flush()
+
+    # Does decompression respect the header in the data?
+    decomp = LACTokDecompressor(**lact_args)
+    decompressed = decomp.decompress(data)
+    assert decompressed.decode('utf8') == text

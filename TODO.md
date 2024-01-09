@@ -2,7 +2,7 @@
 
 ## General
 * [ ] Solve FIXME's
-* [ ] Change to text mode rather than bzip2's binary
+* [ ] ~~Change to text mode rather than bzip2's binary~~
 
 ## Cleanup
 * [x] Take out compress_level 1-9 cruft
@@ -41,7 +41,7 @@
   * [ ] device
   * [ ] threads
 * [ ] Establish return values when run as a command
-* [ ] On decompression, get parameters (model, cpu/cuda, etc) from header
+* [x] On decompression, get parameters (model, cpu/cuda, etc) from header
 
 
 ## Robustness

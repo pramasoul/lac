@@ -730,4 +730,30 @@ def test_lac_compress_long_file_to_file_decompress_cuda_raw(tmp_path, long_text,
     do_test_lac_compress_file_to_file_decompress_cuda_raw(tmp_path, long_text, lac_name)
 
 
+def test_lac_decompress_respecting_header_device(short_lacz_g, short_text, lac_name):
+    # Decompress the gpu-compressed file without specifying device is gpu not cpu:
+    # Should read the header and get it right
+    out = subprocess.check_output(
+        f"{lac_name} -d {short_lacz_g} --stdout", shell=True
+    )
+    assert out.decode() == short_text
+    
+def test_lac_decompress_respecting_header_temperature(short_lacz_g, short_text, lac_name):
+    # Compress with a different temperature than default
+    # Should read the header and get it right
+    out = subprocess.check_output(
+        f"echo -n {short_text} | {lac_name} -T 2.0 -o - | {lac_name} -d --stdout", shell=True
+    )
+    assert out.decode() == short_text
+    
+def test_lac_decompress_respecting_header_model(short_lacz_g, short_text, lac_name, device):
+    # Compress with a different model than default
+    # Should read the header and get it right
+    out = subprocess.check_output(
+        f"echo -n {short_text} | {lac_name} -m gpt2 --device {device} -o - | {lac_name} --device {device} -d --stdout", shell=True
+    )
+    assert out.decode() == short_text
+    
+
+
 # @pytest.mark.skip(reason="Implement me")
