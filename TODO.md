@@ -20,7 +20,6 @@
 * [ ] Remove spurious `ctx`
 * [ ] Does LACTokDecompressor still need token_buffer?
 * [ ] Clean up the LACTokDecompressor save_toks?
-* [ ] Make header decompression not require particular numbered cuda device
 
 ## Command-line
 * [x] Make tlacz -m MODEL feed thru to actual effect
@@ -43,6 +42,7 @@
   * [ ] threads
 * [ ] Establish return values when run as a command
 * [x] On decompression, get parameters (model, cpu/cuda, etc) from header
+* [x] Make header decompression not require particular numbered cuda device
 
 ## Performance
 * [ ] Use kv cache

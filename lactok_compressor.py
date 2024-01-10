@@ -200,7 +200,7 @@ class LACTokCompressor:
         self.tok_mode = tok_mode #DEBUG
         if self.tok_mode == "buffer minimum for correct":
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
-        logging.info(f"LAXTokCompressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
+        logging.debug(f"LAXTokCompressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
         if "mem" in config.debug:
             import pdb
             pdb.set_trace()
@@ -235,7 +235,7 @@ class LACTokCompressor:
         elif not isinstance(data, str):
             raise TypeError("Data must be either a string, bytes, or bytearray")
 
-        logging.info(f"Compress hash {data.encode('utf-8')}:")
+        logging.debug(f"Compress hash {data.encode('utf-8')}:")
         self.cleartext_hasher.update(data.encode('utf-8'))
         self.input_accumulator += data
         if not self.header_sent:
@@ -333,7 +333,7 @@ class LACTokCompressor:
 
     def _footer(self):
         # FIXME
-        logging.info(f"_footer: hasher digest 0x{self.cleartext_hasher.hexdigest()}")
+        logging.debug(f"_footer: hasher digest 0x{self.cleartext_hasher.hexdigest()}")
         return _EOS + self.cleartext_hasher.digest()
 
     def __getstate__(self, *args, **kwargs):
@@ -506,7 +506,7 @@ class LACTokDecompressor:
 
         # Update the hash of the decompressed data
         if rv:
-            logging.info(f"Decompress hash {rv}: ")
+            logging.debug(f"Decompress hash {rv}: ")
             self.cleartext_hasher.update(rv)
 
             # If we have seen all the output, and the header, we can check the hashes
@@ -546,12 +546,21 @@ class LACTokDecompressor:
         logging.debug(f"Header {self.header.version_bytes} {header_dict}")
         for k in ( "encoding_name",
                    "model_name",
-                   "device",
+                   #"device",
                    "threads",
                    "temperature",
         ):
             if k in header_dict:
                 self.__dict__[k] = header_dict[k]
+
+        # If compressed with some cuda device, any cuda will do (FIXME: verify)
+        # If a cuda device is already specified, use that one
+        if hd := header_dict.get("device"):
+            if hd.startswith("cuda") and not self.device.startswith("cuda"):
+                self.device = "cuda"
+            else:
+                self.device = hd
+
         self.unused_data = self.unused_data[8+zjson_header_len:]
         return True
 

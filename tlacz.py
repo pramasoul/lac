@@ -50,7 +50,7 @@ class LacFile(_compression.BaseStream):
     is returned as bytes, and data to be written should be given as
     bytes.  This is a consequence of inheriting from the
     Lib/_compression.py library, which Lib/gzip.py and Lib/gzip2.py
-    also use to provide a framework of common functionality.
+    use to provide a framework of common functionality.
 
     """
 
@@ -453,6 +453,7 @@ def main():
     parser.add_argument('--log', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the logging level')
     parser.add_argument('--debug', action='append', default=[], help='Add debug options')
+    parser.add_argument('--experiment', action='append', default=[], help='Add experiment flags')
     group3 = parser.add_mutually_exclusive_group()
     group3.add_argument(
         "-v", "--verbose", default=0, action="count", help="verbosity about internals"
@@ -476,7 +477,14 @@ def main():
     )  # StreamHandler logs to console
 
     config.debug = args.debug
+    config.experiments = args.experiments
     config.verbose = args.verbose
+
+    # Configure selected experiments
+    if "log_model_output" in config.experiments:
+        # Model output callback is called as config.model_output_callback(logits, loss)
+        config.model_output_callback = lambda logits, loss: logging.info(f"model {len(logits)=} {loss=}")
+
 
     #sys.stderr.write(f"{logging.root.level=}\n")
     logging.debug(f"{args=}")

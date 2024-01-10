@@ -145,7 +145,7 @@ def provide_model(model_name="internal", device="cpu", threads=1):
         decode = lambda l: "".join([itos[i] for i in l])
     else:
         # ok let's assume gpt-2 encodings by default
-        logging.info("No meta.pkl found, assuming GPT-2 encodings...")
+        logging.debug("No meta.pkl found, assuming GPT-2 encodings...")
         enc = tiktoken.get_encoding("gpt2")
         encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
         decode = lambda l: enc.decode(l)
@@ -285,8 +285,8 @@ class LLMPredictionService(PredictionService):
 class LLMPredictor:
     # Init with a ModelOnDeviceCache and model name, device and temperature on creation
     # Callable, returning probabilities using the MODC to transiently obtain the model
-    def __init__(self, mc, model_name, device, temperature=1.0):
-        self.mc = mc
+    def __init__(self, model_cache, model_name, device, temperature=1.0):
+        self.mc = model_cache
         self.model_name = model_name
         self.device = torch.device(device)
         self.temperature = temperature
@@ -306,7 +306,10 @@ class LLMPredictor:
             )
             # forward the model to get the logits for the index in the sequence
             # assert idx_cond.device == self.device
-            logits, _ = model(idx_cond)
+            logits, loss = model(idx_cond)
+            if hasattr(config, "model_output_callback"):
+                config.model_output_callback(logits, loss)
+
         # pluck the logits at the final step and scale by desired temperature
         logits = logits[:, -1, :] / self.temperature
         # apply softmax to convert logits to (normalized) probabilities
