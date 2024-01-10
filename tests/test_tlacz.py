@@ -353,6 +353,9 @@ def DATA(TEXT, lact_args):
     DATA = lac.compress(TEXT, **lact_args)
     return DATA
 
+def test_DATA(DATA, TEXT, lact_args):
+    assert lac.decompress(DATA, **lact_args) == TEXT
+
 @pytest.fixture(scope="session")
 def EMPTY_DATA(lact_args):
     # FIXME: This is a cheat. Need another way to get it.
@@ -426,6 +429,10 @@ def twoStreamTempFile(DATA):
     createTempFile(filename, DATA, streams=2)
     yield filename
     unlink(filename)
+
+def test_twoStreamTempFile(twoStreamTempFile, TEXT, lact_args):
+    #assert lac.decompress(twoStreamTempFile, **lact_args) == TEXT * 2
+    assert LacFile(twoStreamTempFile, **lact_args).read() == TEXT * 2
 
 @pytest.fixture(scope="session")
 def fiveStreamTempFile(DATA):
@@ -705,7 +712,7 @@ class Test_LacFile:
     @pytest.mark.compressed_data
     def test_seek_forward(self, defaultTempFile, TEXT, lact_args):
         filename = defaultTempFile
-        with LACF(filename, lact_args=lact_args) as bz2f:
+        with LacFile(filename, **lact_args) as bz2f:
             pytest.raises(TypeError, bz2f.seek)
             bz2f.seek(150)
             assert bz2f.read() == TEXT[150:]

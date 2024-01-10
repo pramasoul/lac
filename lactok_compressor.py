@@ -3,6 +3,7 @@
 # The objective is to look like _bz2.BZ2Decompressor
 # https://www.cs.cmu.edu/afs/cs/project/pscico-guyb/realworld/99/code/bzip2-0.9.5c/manual_3.html
 
+import hashlib
 import io
 import json
 import logging
@@ -32,7 +33,6 @@ class Thing:
     pass
 
 BUFFER_SIZE = io.DEFAULT_BUFFER_SIZE  # Compressed data read chunk size
-_HEADER = b"\xfe\xfe"                 # Beyond token range
 _EOS = b"That's all, folks!"    # DEBUG
 PRECISION = 48                        # The arithmetic coder's arithmetic precision to use
 
@@ -124,20 +124,28 @@ def lacz_header(compressor) -> bytes:
     rv = b"".join(rv)
     return rv
 
+lacz_cleartext_hasher = hashlib.sha256
+# class myhash:
+#     def __init__(self):
+#         self.h = hashlib.sha256()
+#         self.n_seen = self.n_updates = 0
 
+#     def update(self, v):
+#         self.n_updates += 1
+#         self.n_seen += len(v)
+#         logging.info(f"{self.n_updates} hashing {len(v)}: {v[:16]}...\n")
+#         self.h.update(v)
 
+#     def digest(self):
+#         return self.h.digest()
 
-# # FIXME: adapt & incorporate
-# def get_header_and_advance(f):
-#     magic_bytes = f.read(4)
-#     if magic_bytes != magic_number_bytes():
-#         raise ValueError(f"Wrong magic number for lacz (got {hexlify(magic_bytes)}, expected {hexlify(magic_number_bytes())}")
-#     version_bytes = f.read(2)
-#     zjson_header_len = struct.unpack("!H", f.read(2))[0]
-#     logging.debug(f"{zjson_header_len=}")
-#     vjz = f.read(zjson_header_len)
-#     versions = json.loads(zlib.decompress(vjz))
-#     return version_bytes, versions
+#     def hexdigest(self):
+#         return self.h.hexdigest()
+
+# lacz_cleartext_hasher = myhash
+
+lacz_cleartext_digest_len = len(lacz_cleartext_hasher().digest())
+lacz_footer_len = len(_EOS) + lacz_cleartext_digest_len
 
 
 class TokPredictor(PDFPredictor):
@@ -186,11 +194,12 @@ class LACTokCompressor:
         self.threads = threads
         self.temperature = temperature
 
-        self.tok_mode = tok_mode #DEBUG
         self.tok_enc = tiktoken.get_encoding(encoding_name)
+        self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
+
+        self.tok_mode = tok_mode #DEBUG
         if self.tok_mode == "buffer minimum for correct":
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
-        self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
         logging.info(f"LAXTokCompressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
         if "mem" in config.debug:
             import pdb
@@ -203,6 +212,7 @@ class LACTokCompressor:
         logging.debug(f"LACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
         self.input_accumulator = ""
+        self.cleartext_hasher = lacz_cleartext_hasher()
         self.bits_accumulator = []
         self.header_sent = False
 
@@ -225,6 +235,8 @@ class LACTokCompressor:
         elif not isinstance(data, str):
             raise TypeError("Data must be either a string, bytes, or bytearray")
 
+        logging.info(f"Compress hash {data.encode('utf-8')}:")
+        self.cleartext_hasher.update(data.encode('utf-8'))
         self.input_accumulator += data
         if not self.header_sent:
             logging.debug(f"LACTokCompressor.compress including header in rv")
@@ -243,6 +255,7 @@ class LACTokCompressor:
         # DEBUG
         #tok_mode = "hold all until flush"
         if self.tok_mode == "line-by-line":
+            # FIXME: is below still true?
             # old way, buggy, but don't have good explanation.
             # Fails on test_atok_compressor.py::test_like_tlacz_write_read_with_pathlike_file
             nl_split = self.input_accumulator.split('\n')
@@ -316,12 +329,12 @@ class LACTokCompressor:
         return rv
 
     def _header(self):
-        # return _HEADER
         return lacz_header(self)
 
     def _footer(self):
         # FIXME
-        return _EOS
+        logging.info(f"_footer: hasher digest 0x{self.cleartext_hasher.hexdigest()}")
+        return _EOS + self.cleartext_hasher.digest()
 
     def __getstate__(self, *args, **kwargs):
         raise TypeError  # Can't pickle us
@@ -365,6 +378,8 @@ class LACTokDecompressor:
         self.unused_data = b""
         self.token_buffer = []
         self.output_buffer = b""
+        logging.debug(f"LacTokDecompressor._restart getting new cleartext_hasher")
+        self.cleartext_hasher = lacz_cleartext_hasher() # FIXME: create it here? where?
         self.predictor and self._restart_AC()
         self._eos = False
         self.state = "Expecting header"
@@ -375,7 +390,7 @@ class LACTokDecompressor:
 
 
     def __repr__(self):
-        return f"decomp({self.state=} {self.needs_input=}, {self._eos=} {self.eof=},{len(self.unused_data)=}({self.unused_data[:4]}),{len(self.token_buffer)=}({self.token_buffer[:4]}...{self.token_buffer[-4:]})) -> {len(self.output_buffer)}({self.output_buffer[:4]}...{self.output_buffer[-4:]}),{self.n_bytes_ingested})"
+        return f"decomp({self.state=} {self.needs_input=}, {self._eos=} {self.eof=}, {len(self.unused_data)=}({self.unused_data[:4]}),{len(self.token_buffer)=}({self.token_buffer[:4]}...{self.token_buffer[-4:]})) -> {len(self.output_buffer)=}({self.output_buffer[:4]}...{self.output_buffer[-4:]}),{self.n_bytes_ingested=})"
         
     @property
     def needs_input(self):
@@ -404,7 +419,7 @@ class LACTokDecompressor:
             else:
                 max_length = size
 
-        # If restarting, clear unused data
+        # If restarting, clear unused data, etc
         if self.eof:
             self._restart()
 
@@ -417,7 +432,11 @@ class LACTokDecompressor:
         self.n_bytes_ingested += len(rawblock)
         
         # The state machine
-        #while self.unused_data: # adds complexity handled by higher levels already
+        #NO: while self.unused_data: # adds complexity handled by higher levels already
+        if self.state == "Footer good":
+            self._restart_AC()
+            self.state = "Expecting header"
+
         if self.state == "Expecting header":
             if self.check_for_header_and_process():
                 self.state = "Expecting data or footer"
@@ -446,7 +465,6 @@ class LACTokDecompressor:
             logging.debug(f"LACTokDecompressor.decompress {self} {eot_ix=}")
             self.token_buffer.extend(new_toks)
             logging.debug(f"LACTokDecompressor.decompress {self} {eot_ix=}")
-            logging.debug(f"LACTokDecompressor.decompress {self=}")
 
             # Now turn tokens into text in output buffer
             decoded_toks = self.tok_enc.decode_bytes(self.token_buffer)
@@ -455,20 +473,26 @@ class LACTokDecompressor:
             logging.debug(f"LACTokDecompressor.decompress {self=}, {decoded_toks=}")
 
         if self.state == "Expecting footer":
+            # We may have some output that hasn't been returned
+            # and will need to get that out before checking the hash in the footer
+            if not self.output_buffer or True:
+                self.state = "Looking for footer"
+
+        if self.state == "Looking for footer":
             check_result = self.check_for_footer_and_process()
             logging.debug(f"{check_result=}")
             if check_result == "good":
                 self.state = "Footer good"
             elif check_result == "looking":
-                pass            # Stay in "Expecting footer" state
+                pass            # Stay in "Looking for footer" state
             else:
                 raise ValueError(f"bad footer: {check_result}")
             logging.debug(f"LACTokDecompressor.decompress {self=}")
 
-        if self.state == "Footer good":
-            self._restart_AC()
-            self.state = "Expecting header"
-            logging.debug(f"LACTokDecompressor.decompress {self=}")
+        # if self.state == "Footer good":
+        #     self._restart_AC()
+        #     self.state = "Expecting header"
+        #     logging.debug(f"LACTokDecompressor.decompress {self=}")
 
         # Phase 2: Provide output
         # Now provide output, respecting max_length
@@ -479,6 +503,22 @@ class LACTokDecompressor:
             rv = self.output_buffer[:max_length]
             self.output_buffer = self.output_buffer[max_length:]
         logging.debug(f"LACTokDecompressor.decompress {self} {len(rv)=}({rv[:16]}...)")
+
+        # Update the hash of the decompressed data
+        if rv:
+            logging.info(f"Decompress hash {rv}: ")
+            self.cleartext_hasher.update(rv)
+
+            # If we have seen all the output, and the header, we can check the hashes
+            if self.output_buffer == b"" and self.state == "Footer good":
+                decompression_digest = self.cleartext_hasher.digest()
+                if self.source_digest == decompression_digest:
+                    logging.debug(f"Hashes agree")
+                else:
+                    raise OSError(
+                        f"Original file had hash of 0x{self.source_digest.hex()}"
+                        f" but this decompression is 0x{decompression_digest.hex()}"
+                    )
         return rv
 
 
@@ -487,11 +527,8 @@ class LACTokDecompressor:
         # two version bytes,
         # packed uint16 length of rest of header
         # Until we have that, we don't have the header
-        #if len(self.unused_data) < 4:
-        #    return False
         if not hasattr(self, "header_magic"):
             self.header_magic_bytes = magic_number_bytes()
-        #if self.unused_data[:4] != self.header_magic_bytes:
         if not self.unused_data.startswith(self.header_magic_bytes[:len(self.unused_data)]):
             raise OSError("Bad magic bytes in header")
         if len(self.unused_data) < 8:
@@ -504,7 +541,6 @@ class LACTokDecompressor:
         self.header = Thing()
         self.header.version_bytes = self.unused_data[4:6]
         vjz = self.unused_data[8:8+zjson_header_len]
-        #self.header.versions = json.loads(zlib.decompress(vjz))
         zd = zlib.decompressobj(zdict=header_zdict)
         header_dict = json.loads(zd.decompress(vjz) + zd.flush())
         logging.debug(f"Header {self.header.version_bytes} {header_dict}")
@@ -528,14 +564,17 @@ class LACTokDecompressor:
             return f"displaced to start at {footer_start}"
         if footer_start == -1:
             if len(self.unused_data) >= len(_EOS):
-                return("not found")
+                return "not found"
             else:
                 return "looking"
         if footer_start == 0:
-            footer_len = len(_EOS)
-            self.unused_data = self.unused_data[footer_start + footer_len:]
+            if len(self.unused_data) < len(_EOS) + lacz_cleartext_digest_len:
+                return "looking"
+            self.source_digest = self.unused_data[footer_start + len(_EOS) : footer_start + len(_EOS) + lacz_cleartext_digest_len]
+            self.unused_data = self.unused_data[footer_start + lacz_footer_len:]
             self._eos = True    # FIXME?
             return "good"
+
 
     def __getstate__(self, *args, **kwargs):
         raise TypeError

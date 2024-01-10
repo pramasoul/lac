@@ -190,7 +190,9 @@ def test_compress_empty(lact_args, lac_magic_bytes):
     #assert compressed == b"\xfe\xfe\xff\xc0That's all, folks!"
     #assert compressed.startswith(b"\xfe\xfe")
     assert compressed.startswith(lac_magic_bytes)
-    assert compressed.endswith(b"That's all, folks!")
+    #assert compressed.endswith(b"That's all, folks!")
+    t = len(b"That's all, folks!")
+    assert compressed[-(t + 32) : -32] == b"That's all, folks!"
     #assert compressed[2] == b"\xff"[0]
     #assert len(compressed) == 4 + len(b"That's all, folks!")
 
@@ -265,10 +267,13 @@ def test_cd_medium(medium_text, lact_args):
 
 def cd_char_at_a_time_test(text, lact_args):
     comp = LACTokCompressor(**lact_args)
+    logging.info(f"caat compressing {text}: ")
     compressed = b"".join(comp.compress(char) for char in text) + comp.flush()
+    logging.info(f"caat decompressing all together: ")
     decompressed = LACTokDecompressor(**lact_args).decompress(compressed)
     if type(text) is str: text = text.encode("utf8")
     assert text == decompressed
+    logging.info(f"caat decompressing byte at a time: ")
     decomp = LACTokDecompressor(**lact_args)
     decompressed = b"".join(decomp.decompress(bytes([b])) for b in compressed)
     assert text == decompressed
@@ -437,3 +442,17 @@ def test_decompress_respecting_header(medium_text, lact_args):
     decomp = LACTokDecompressor(**lact_args)
     decompressed = decomp.decompress(data)
     assert decompressed.decode('utf8') == text
+
+def test_decompress_hash(lact_args):
+    text = "Hi!"
+    c = LACTokCompressor(**lact_args)
+    compressed = c.compress(text) + c.flush()
+    d = LACTokDecompressor(**lact_args)
+    decompressed = d.decompress(compressed)
+    assert text == decompressed.decode('utf8')
+    messed = bytearray(compressed)
+    messed[-1] ^= 1             # flip a bit in the hash at the end
+    d = LACTokDecompressor(**lact_args)
+    with pytest.raises(OSError):
+        decompressed = d.decompress(messed)
+        assert text == decompressed.decode('utf8')

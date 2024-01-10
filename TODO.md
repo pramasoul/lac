@@ -20,6 +20,7 @@
 * [ ] Remove spurious `ctx`
 * [ ] Does LACTokDecompressor still need token_buffer?
 * [ ] Clean up the LACTokDecompressor save_toks?
+* [ ] Make header decompression not require particular numbered cuda device
 
 ## Command-line
 * [x] Make tlacz -m MODEL feed thru to actual effect
@@ -43,6 +44,9 @@
 * [ ] Establish return values when run as a command
 * [x] On decompression, get parameters (model, cpu/cuda, etc) from header
 
+## Performance
+* [ ] Use kv cache
+* [ ] Profile
 
 ## Robustness
 * [ ] Use `model.config` info e.g. GPTConfig(block_size=1024, vocab_size=50304,...)`
@@ -55,7 +59,7 @@
   * [ ] first bit==0 -> no more header
 * [ ] Header contain model hash
 * [ ] Header contain how to get model
-* [ ] Make footer have hash check of correct results
+* [x] Make footer have hash check of correct results
 
 ## Testing
 * [ ] Make compression-data for tests as importable data file that rebuilds
