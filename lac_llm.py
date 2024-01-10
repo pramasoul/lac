@@ -308,7 +308,7 @@ class LLMPredictor:
             # assert idx_cond.device == self.device
             logits, loss = model(idx_cond)
             if hasattr(config, "model_output_callback"):
-                config.model_output_callback(logits, loss)
+                config.model_output_callback(idx_cond, logits)
 
         # pluck the logits at the final step and scale by desired temperature
         logits = logits[:, -1, :] / self.temperature

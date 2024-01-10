@@ -184,7 +184,7 @@ class GPT(nn.Module):
                 )
 
         # report number of parameters
-        logging.info("number of parameters: %.2fM" % (self.get_num_params() / 1e6,))
+        logging.debug("number of parameters: %.2fM" % (self.get_num_params() / 1e6,))
 
     def get_num_params(self, non_embedding=True):
         """

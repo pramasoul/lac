@@ -477,14 +477,13 @@ def main():
     )  # StreamHandler logs to console
 
     config.debug = args.debug
-    config.experiments = args.experiments
+    config.experiments = args.experiment # Note shift from singular to plural
     config.verbose = args.verbose
 
     # Configure selected experiments
-    if "log_model_output" in config.experiments:
-        # Model output callback is called as config.model_output_callback(logits, loss)
-        config.model_output_callback = lambda logits, loss: logging.info(f"model {len(logits)=} {loss=}")
-
+    if config.experiments:
+        import experiments
+        experiments.attach_experiments(config.experiments)
 
     #sys.stderr.write(f"{logging.root.level=}\n")
     logging.debug(f"{args=}")
