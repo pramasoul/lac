@@ -518,9 +518,6 @@ def main():
 
     #print(f"{args.args=}")
 
-    if args.stdout:
-        chunk_size = stdout_chunk_size
-
     if args.output and len(args.args) != 1:
         parser.error("-o/--output can only be used with a single input file")
 
@@ -542,6 +539,8 @@ def main():
             outfile = open(sys.stdout.buffer if out == '-' or args.stdout else out,"wb", **lacfile_args)
             infile = sys.stdin.buffer if arg == '-' else _builtin_open(arg,"rb")
 
+        if args.stdout or out == '-':
+            chunk_size = stdout_chunk_size
             
         f,g = infile, outfile
 
