@@ -480,6 +480,17 @@ def main():
     config.experiments = args.experiment # Note shift from singular to plural
     config.verbose = args.verbose
 
+    chunk_size = io.DEFAULT_BUFFER_SIZE
+    stdout_chunk_size = 1 # Give it a try
+
+    # DEBUG:
+    for s in config.debug:
+        if s.startswith("stdout_chunk_size:"):
+            size = int(s.split(":", maxsplit=1)[1])
+            stdout_chunk_size = size
+            logging.info(f"altered stdout_chunk_size to {stdout_chunk_size}")
+            break
+
     # Configure selected experiments
     if config.experiments:
         import experiments
@@ -494,12 +505,6 @@ def main():
                      'temperature': args.temperature,
     }
                       
-    chunk_size = io.DEFAULT_BUFFER_SIZE
-    # buggy stdout_chunk_size = 32      # FIXME: hangs if 20 or below (threshold undetermined)
-    # At 32, failed ./tlacz.py -c ~/tmp/F.txt --device cuda:2 | ./tlacz.py -d - --device cuda:3
-    stdout_chunk_size = 64 # FIXME: Maybe works. Maybe won't once header / footer size changes
-    #stdout_chunk_size = chunk_size # DEBUG: hack it to unchanging
-
     """
     lac -o foo bar baz => error "-o/--output can only be used with a single input file"
     lac - => compress stdin to stdout
@@ -515,8 +520,6 @@ def main():
     lac -d foo.lacz bar.lacz => decompress foo.lacz to foo, and bar.lacz to bar
     lac -cd foo bar => compress foo and bar to stdout
     """
-
-    #print(f"{args.args=}")
 
     if args.output and len(args.args) != 1:
         parser.error("-o/--output can only be used with a single input file")
@@ -540,6 +543,7 @@ def main():
             infile = sys.stdin.buffer if arg == '-' else _builtin_open(arg,"rb")
 
         if args.stdout or out == '-':
+            logging.debug(f"{args.stdout=} {out=} {stdout_chunk_size=}")
             chunk_size = stdout_chunk_size
             
         f,g = infile, outfile

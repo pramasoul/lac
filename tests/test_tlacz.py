@@ -431,7 +431,6 @@ def twoStreamTempFile(DATA):
     unlink(filename)
 
 def test_twoStreamTempFile(twoStreamTempFile, TEXT, lact_args):
-    #assert lac.decompress(twoStreamTempFile, **lact_args) == TEXT * 2
     assert LacFile(twoStreamTempFile, **lact_args).read() == TEXT * 2
 
 @pytest.fixture(scope="session")

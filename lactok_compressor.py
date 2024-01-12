@@ -211,6 +211,7 @@ class LACTokCompressor:
         ))
         logging.debug(f"LACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
+        self.binary_input_buffer = b""
         self.input_accumulator = ""
         self.cleartext_hasher = lacz_cleartext_hasher()
         self.bits_accumulator = []
@@ -224,19 +225,41 @@ class LACTokCompressor:
         return f"comp({self.encoding_name} {self.predictor} {' H'[self.header_sent]},{len(self.input_accumulator)}({self.input_accumulator[:4]}) -> {len(self.bits_accumulator)}({''.join(str(v) for v in self.bits_accumulator[:8])})"
 
     def compress(self, data, *args, **kwargs):
-        logging.debug(f"LACTokCompressor.compress({len(data)=}) {self=}")
+        if any(s in config.debug for s in ("log_all", "compress")):
+            logging.info(f"LACTokCompressor.compress({len(data)=}) {self=}")
 
-        # Ensure data is in text format
+        # Ensure data is in text format, because the tokenizer requires it.
+        # Yet we often have to deal in binary UTF-8, because higher layers,
+        # which use Lib/_compression.py to acquire features that users of
+        # the gzip.py and bz2.py modules find useful, have to deal in binary
+        # as that is the base format of gzip and bzip2, and _compression.py
+        # is written accordingly.
+        #
+        # As we are called by _compression.compress, we cannot expect
+        # that each segment we get of binary data will form a utf-8
+        # decodable piece, as a multi-byte unicode may have been split
+        # between calls to us. Hence we buffer the binary input until
+        # it decodes correctly, at which point we can pass the string
+        # downstream, into the tokenizer.
+        
         if isinstance(data, (bytes, bytearray)):
+            self.binary_input_buffer += data
             try:
-                data = data.decode('utf-8')  # Decode using UTF-8 or another appropriate encoding
+                #data = data.decode('utf-8')  # Decode using UTF-8 or another appropriate encoding
+
+                data = self.binary_input_buffer.decode('utf-8')
             except UnicodeDecodeError:
-                raise ValueError("Byte data provided is not in valid UTF-8 format")
+                #raise ValueError("Byte data provided is not in valid UTF-8 format")
+                "format" in config.debug and logging.info(f"compress: UnicodeDecodeError data=0x{data.hex()} {self.binary_input_buffer=}")
+                data = ""
+            else:
+                self.binary_input_buffer = b""
         elif not isinstance(data, str):
             raise TypeError("Data must be either a string, bytes, or bytearray")
 
         logging.debug(f"Compress hash {data.encode('utf-8')}:")
         self.cleartext_hasher.update(data.encode('utf-8'))
+
         self.input_accumulator += data
         if not self.header_sent:
             logging.debug(f"LACTokCompressor.compress including header in rv")
@@ -537,13 +560,18 @@ class LACTokDecompressor:
         # if zjson_header_len > 1024: complain
         if len(self.unused_data) < 8 + zjson_header_len:
             return False
+
         # Here we have the expected number of bytes to decode the header
         self.header = Thing()
         self.header.version_bytes = self.unused_data[4:6]
         vjz = self.unused_data[8:8+zjson_header_len]
         zd = zlib.decompressobj(zdict=header_zdict)
         header_dict = json.loads(zd.decompress(vjz) + zd.flush())
-        logging.debug(f"Header {self.header.version_bytes} {header_dict}")
+
+        if any(s in config.debug for s in ("log_all", "header")):
+            logging.info(f"Header {self.header.version_bytes} {header_dict}")
+            logging.info(f"Before: {self.encoding_name}, {self.model_name}, {self.device}, {self.threads}, {self.temperature}")
+
         for k in ( "encoding_name",
                    "model_name",
                    #"device",

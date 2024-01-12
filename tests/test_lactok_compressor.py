@@ -227,6 +227,35 @@ might want to use the technology, as what may seem "reasonable" for a
 company preparing a proprietary commercial software product may seem
 much less reasonable for a free software or open source project."""
 
+@pytest.fixture
+def medium_swedish_text(): # Some useful two-byte UTF-8 in here
+    return r"""Om jag ock bleve tusen år gammal tror jag aldrig på jorden jag skulle
+kunna glömma den dagen jag kom till min plats som piga. Om jag bleve
+tusen år gammal skall jag ändå aldrig kunna få ur mitt minne den
+stunden, den resan, den ankomsten. Fyra timmar på tåg neråt landet, vid
+stationen skulle jag hämtas av husbonden för att sedan åka en mil
+landväg. Riggad var jag och blommor hade jag fått av skrattande vänner
+och bekanta, som viftade av mig, och jag kände mig mest som en
+Amerikaresande när jag sjönk ned på en tom bänk i kupén och började
+övertänka situationen. Det gick som en lång rysning över mig, när jag
+såg framåt mot den månad som väntade, och det var just inte med glada
+tankar jag stirrade ut genom fönstret, som var smutsigt och regnigt och
+grått -- en trist och beklämmande fyrkant där bilderna gledo förbi lika
+snabbt som på en biograf. Liljeholmsbron, Älvsjö, Huddinge -- herre gud
+om jag vore på hemväg i stället! frös jag till invärtes och började
+beskåda mig själv så gott jag kunde. Allting var främmande och kändes så
+underligt. En lång brun kappa, händerna i bruna bomullsvantar och genom
+den glesa vävnaden blänkte en bred gullring fram som tecken på min nya
+värdighet av förlovad. Vad var det nu han hette min fästman? funderade
+jag. Svensson -- nej Andersson -- _nej_ Bernhard Karlsson. Det stod ju i
+ringen: »Din egen Bernhard». Vad i all världen hade jag fått det namnet
+ifrån -- Bernhard! Det var då det löjligaste jag kunnat hitta på, varför
+inte Karl, August eller Ernst eller vad som helst utom det där fåniga
+namnet. Jag satt och retade upp mig själv och skrattade litet överlägset
+åt min egen tydliga och odisputabla nervositet."""
+
+
+
 def compress_decompress_test(text, lact_args):
     c = LACTokCompressor(**lact_args)
     d = LACTokDecompressor(**lact_args)
@@ -265,10 +294,24 @@ def test_cd_brief(lact_args):
 def test_cd_medium(medium_text, lact_args):
     compress_decompress_test(medium_text, lact_args)
 
+def test_cd_swedish_short(lact_args):
+    compress_decompress_test("tusen år gammal skall jag ändå aldrig kunna få ur mitt minne den", lact_args)
+    compress_decompress_test("tusen år gammal skall jag ändå aldrig kunna få ur mitt minne den".encode('utf-8'), lact_args)
+
+def test_cd_swedish_medium(medium_swedish_text, lact_args):
+    compress_decompress_test(medium_swedish_text, lact_args)
+
 def cd_char_at_a_time_test(text, lact_args):
     comp = LACTokCompressor(**lact_args)
     logging.info(f"caat compressing {text}: ")
-    compressed = b"".join(comp.compress(char) for char in text) + comp.flush()
+
+    if isinstance(text, str):
+        compressed = b"".join(comp.compress(char) for char in text) + comp.flush()
+    elif isinstance(text, (bytes, bytearray)):
+        compressed = b"".join(comp.compress(bytes((m,))) for m in text) + comp.flush()
+    else:
+        assert 0, f"Bad input type {typeof(text)} to cd_char_at_a_time_test()"
+        
     logging.info(f"caat decompressing all together: ")
     decompressed = LACTokDecompressor(**lact_args).decompress(compressed)
     if type(text) is str: text = text.encode("utf8")
@@ -287,6 +330,12 @@ def test_cd_caat_brief(lact_args):
 def test_cd_caat_medium(medium_text, lact_args):
     cd_char_at_a_time_test(medium_text, lact_args)
 
+def test_cd_caat_swedish_short(lact_args): # character-at-a-time with some multibyte UTF-8
+    cd_char_at_a_time_test("tusen år gammal skall jag ändå aldrig kunna få ur mitt minne den", lact_args)
+    cd_char_at_a_time_test("tusen år gammal skall jag ändå aldrig kunna få ur mitt minne den".encode('utf-8'), lact_args)
+
+def test_cd_caat_swedish_medium(medium_swedish_text, lact_args):
+    cd_char_at_a_time_test(medium_swedish_text, lact_args)
 
 import glob
 import os

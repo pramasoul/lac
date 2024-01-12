@@ -31,10 +31,11 @@
 * [ ] Make tlacz -q feed thru to actual effect
 * [x] Make tlacz log_level switch
 * [x] Make -o --output to set output file (see brotli -h)
+* [x] Make tlacz --experiment foo --experiment bar machinery
 
 ## Usability
 * [x] Make stdout flush often enough to see progress
-  * [ ] Debug why too short stdout_chunk_size hangs. Is it footer decoding?
+  * [x] Debug why too short stdout_chunk_size hangs. Is it footer decoding? *(No, it's utf-8 decoding when a multi-byte unicode char is split.)*
 * [ ] Review file naming and overwriting and correct
 * [ ] Provide means of establishing defaults for
   * [ ] model
