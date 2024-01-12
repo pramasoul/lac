@@ -556,10 +556,16 @@ class LACTokDecompressor:
         # If compressed with some cuda device, any cuda will do (FIXME: verify)
         # If a cuda device is already specified, use that one
         if hd := header_dict.get("device"):
-            if hd.startswith("cuda") and not self.device.startswith("cuda"):
-                self.device = "cuda"
-            else:
-                self.device = hd
+            if hd.startswith("cuda"):
+                if self.device.startswith("cuda"):
+                    pass # Some cuda device is already specified; keep it
+                else:
+                    self.device = "cuda" # Use generic cuda device
+            else: # Header says compressed with non-"cuda" device
+                self.device = hd # Use it
+
+        if any(s in config.debug for s in ("log_all", "header")):
+            logging.info(f"After:  {self.encoding_name}, {self.model_name}, {self.device}, {self.threads}, {self.temperature}")
 
         self.unused_data = self.unused_data[8+zjson_header_len:]
         return True

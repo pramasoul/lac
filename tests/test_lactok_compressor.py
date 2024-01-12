@@ -447,16 +447,16 @@ def test_decompress_respecting_header_generic_cuda(medium_text, lact_args):
     # This test presents difficulties with automating its
     # verification. The issue is automating observing what cuda device
     # on which the compressor runs. One can run this manually,
-    # specifying a different cuda device than cuda:0, and observe the
-    # compression happen on cuda:0 and the decompression on the
+    # specifying a different cuda device than cuda:1, and observe the
+    # compression happen on cuda:1 and the decompression on the
     # specified other cuda device, with e.g. nvtop.
     # E.g. pytest tests/test_lactok_compressor.py::test_decompress_respecting_header_generic_cuda --device cuda:3
 
     text = medium_text
     # compress with cuda:0
-    d = copy.copy(lact_args)
-    d["device"] = "cuda:0"
-    comp = LACTokCompressor(**d)
+    ka = copy.copy(lact_args)
+    ka["device"] = "cuda:1"
+    comp = LACTokCompressor(**ka)
     data = comp.compress(text, compresslevel=1) + comp.flush()
 
     # Does decompression respect the header in the data?
