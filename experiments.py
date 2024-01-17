@@ -94,6 +94,38 @@ def alter_stdout_chunk_size():
             logging.info(f"altered stdout_chunk_size to {tlacz.stdout_chunk_size}")
             break
 
+def mangle_logits():
+    # Try a warmup time of first N tokens with a non-data-dependent PDF, e.g. constant
+    # Or ramp l_min and/or qw
+
+    l_min = -8.0
+    qw = 0.3
+    m_warmup = 0
+    for s in config.debug:
+        if s.startswith("l_min:"):
+            l_min = float(s.split(":", maxsplit=1)[1])
+        if s.startswith("qw:"):
+            qw = float(s.split(":", maxsplit=1)[1])
+        if s.startswith("m_warmup:"):
+            m_warmup = int(s.split(":", maxsplit=1)[1])
+
+    def mangle(logits):
+        nonlocal m_warmup
+        if m_warmup:
+            m_warmup -= 1
+            rv = torch.ones_like(logits)
+        else:
+            #norm = np.log(np.sum(np.exp(v)))
+            logits_max = torch.max(logits)
+            norm = torch.log(torch.sum(torch.exp(logits - logits_max))) + logits_max
+            logits -= norm
+            logits.clamp_(min=l_min)
+            rv = (logits / qw).round() * qw
+            "log_logits_mangling" in config.debug and logging.info(f"mangle: {logits_max=} {ql.shape=}")
+        return rv
+        
+    config.mangle_logits = mangle
+
 
 def attach_experiments(experiment_names):
     # Configure selected experiments

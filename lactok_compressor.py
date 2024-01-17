@@ -117,6 +117,10 @@ def lacz_header(compressor) -> bytes:
           "threads": compressor.threads,
           "temperature": compressor.temperature,
     }
+    if hasattr(config, "debug") and config.debug:
+        d["debug"] = config.debug
+    if hasattr(config, "experiments") and config.experiments:
+        d["experiments"] = config.experiments
     zc = zlib.compressobj(zdict=header_zdict)
     vjz = zc.compress(json.dumps(d).encode("utf-8")) + zc.flush()
     rv.append(struct.pack("!H", len(vjz)))  # prepend the length
@@ -567,6 +571,11 @@ class LACTokDecompressor:
         vjz = self.unused_data[8:8+zjson_header_len]
         zd = zlib.decompressobj(zdict=header_zdict)
         header_dict = json.loads(zd.decompress(vjz) + zd.flush())
+
+        if hasattr(config, "verbose") and config.verbose:
+            import pprint
+            sys.stderr.write(f"Header: version {self.header.version_bytes[0]}.{self.header.version_bytes[1]}\n"
+                             f"{pprint.pformat(header_dict)}\n")
 
         if any(s in config.debug for s in ("log_all", "header")):
             logging.info(f"Header {self.header.version_bytes} {header_dict}")

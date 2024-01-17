@@ -32,6 +32,9 @@
 * [x] Make tlacz log_level switch
 * [x] Make -o --output to set output file (see brotli -h)
 * [x] Make tlacz --experiment foo --experiment bar machinery
+* [ ] Make a way to force override aspects of the header for decompression
+* [x] Make a way to see the header (-v)
+* [ ] Make a -t --test option
 
 ## Usability
 * [x] Make stdout flush often enough to see progress
@@ -48,13 +51,15 @@
 ## Performance
 * [ ] Use kv cache
 * [ ] Profile
+* [ ] Check into dtype "bfloat16" for cuda
+* [ ] Check into model compilation
 
 ## Robustness
 * [ ] Use `model.config` info e.g. GPTConfig(block_size=1024, vocab_size=50304,...)`
 * [ ] Make asserts have reasonable messages
 
 ## Format
-* [ ] Fix header to use lac's informative header
+* [x] Fix header to use lac's informative header
 * [ ] Make switch for one-bit header mode
   * [ ] first bit==0 -> no more header
   * [ ] first bit==0 -> no more header
@@ -64,9 +69,9 @@
 
 ## Testing
 * [ ] Make compression-data for tests as importable data file that rebuilds
-* [ ] Test with other models
+* [x] Test with other models
 * [x] Test as a shell-runnable command
-* [ ] Make a script to run all the relevant tests
+* [x] Make a test to run all the relevant tests
 
 ## Lurking Trouble
 * [x] Fix idx endless growth in prediction service
@@ -87,7 +92,11 @@
   * [ ] when batching
   * [ ] when extending idx
 * [ ] Compression vs model & temperature
-
+* [x] Probability distribution experiments:
+  * [x] logits limiting max negative value
+  * [x] logits quantization
+* [x] float32
+* [ ] integer arithmetic
 
 
 ## Ideas & Research

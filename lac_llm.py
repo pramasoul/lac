@@ -294,8 +294,8 @@ class LLMPredictor:
         make_torch_deterministic() # FIXME: where should this really be?
 
     def __call__(self, idx):
-        with torch.no_grad(), autocast(), self.mc(self.model_name, self.device) as model:
-            #self.device = device = self.device or host_device_of(model)
+        casting_cm = "no_autocast" in config.debug and nullcontext or autocast
+        with torch.no_grad(), casting_cm(), self.mc(self.model_name, self.device) as model:
             idx = idx.to(self.device)
 
             # if the sequence context is growing too long we must crop it at block_size
@@ -312,6 +312,9 @@ class LLMPredictor:
 
         # pluck the logits at the final step and scale by desired temperature
         logits = logits[:, -1, :] / self.temperature
+        if hasattr(config, "mangle_logits"):
+            logits = config.mangle_logits(logits)
+
         # apply softmax to convert logits to (normalized) probabilities
         probabilities = F.softmax(logits, dim=-1)[-1]
         return probabilities  #.cpu()

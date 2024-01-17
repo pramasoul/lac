@@ -4,7 +4,7 @@ Compress using a trained model as a predictor
 The name ``lac'' is meant to suggest "LLM Arithmetic Coder"
 """
 
-__version_bytes__ = bytes([0, 1])
+__version_bytes__ = bytes([0, 2])
 __version__ = f"{'.'.join(str(int(b)) for b in __version_bytes__)}"
 
 __author__ = "Tom Soulanille <soul@prama.com>"
