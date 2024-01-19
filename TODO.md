@@ -34,7 +34,7 @@
 * [x] Make tlacz --experiment foo --experiment bar machinery
 * [ ] Make a way to force override aspects of the header for decompression
 * [x] Make a way to see the header (-v)
-* [ ] Make a -t --test option
+* [x] Make a -t --test option
 
 ## Usability
 * [x] Make stdout flush often enough to see progress

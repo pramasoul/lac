@@ -368,6 +368,25 @@ def decompress(data, **kwargs):
     return b"".join(results)
 
 
+### Utilities
+# Chat4:
+class BitBucket(io.IOBase):
+    def write(self, *args, **kwargs):
+        pass  # Do nothing
+
+    def readable(self):
+        return False
+
+    def writable(self):
+        return True
+
+    def seekable(self):
+        return False
+
+    def close(self):
+        pass  # Do nothing
+
+
 # Following taken from Lib/gzip.py and adapted
 # gzip.py says at the top:
 # based on Andrew Kuchling's minigzip.py distributed with the zlib module
@@ -537,6 +556,9 @@ def main():
 
         if args.decompress:
             outfile = sys.stdout.buffer if out == '-' or args.stdout else _builtin_open(out,"wb")
+            infile = open(sys.stdin.buffer if arg == '-' else arg,"rb", **lacfile_args)
+        elif args.test:
+            outfile = BitBucket() # Discard the decompressed data, we just want the hash check
             infile = open(sys.stdin.buffer if arg == '-' else arg,"rb", **lacfile_args)
         else:
             outfile = open(sys.stdout.buffer if out == '-' or args.stdout else out,"wb", **lacfile_args)

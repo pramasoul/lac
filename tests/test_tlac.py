@@ -754,6 +754,26 @@ def test_lac_decompress_respecting_header_model(short_lacz_g, short_text, lac_na
     )
     assert out.decode() == short_text
     
+def test_lac_test(tmp_path, lac_name, short_text):
+    # lac -o bar - => compress stdin to bar
+    test_text = "Hello!"
+    foo = tmp_path / "foo"
+    bar = tmp_path / "bar"
+    baz = tmp_path / "baz"
+    foo.write_text(test_text)
+    compress_out = subprocess.check_output(
+        f"{lac_name} -o {bar} < {foo}", shell=True
+    ).decode()
+    test_out = subprocess.check_output(
+        f"{lac_name} -t {bar}", shell=True
+    ).decode()
+    # Now flip a bit in the check hash
+    z = bytearray(bar.read_bytes())
+    z[-1] ^= 1
+    baz.write_bytes(z)
+    result = subprocess.run([lac_name, "-t", f"{baz}"], stderr=subprocess.PIPE, text=True)
+    assert result.returncode != 0
+    assert "OSError: Original file had hash of " in result.stderr
 
 
 # @pytest.mark.skip(reason="Implement me")
