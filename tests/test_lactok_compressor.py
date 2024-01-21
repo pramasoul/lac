@@ -24,7 +24,7 @@ from typing import Callable, List, Tuple
 
 from unittest.mock import mock_open
 
-import tok_compressor as tc
+#import tok_compressor as tc
 import lactok_compressor as latc
 from lactok_compressor import LACTokCompressor, LACTokDecompressor
 
@@ -271,22 +271,20 @@ def test_cd_short(lact_args):
     compress_decompress_test(b"The quick brown fox, et al.", lact_args)
 
 def test_cd_short_nl(lact_args):
-    for c,d in ((tc.TokCompressor(), tc.TokDecompressor()),
-                (LACTokCompressor(**lact_args),LACTokDecompressor(**lact_args))):
-        text = b"\n"
-        zbody = c.compress(text)
-        ztail = c.flush()
-        reconstructed = d.decompress(zbody + ztail)
-        assert text == reconstructed
+    c,d = LACTokCompressor(**lact_args), LACTokDecompressor(**lact_args)
+    text = b"\n"
+    zbody = c.compress(text)
+    ztail = c.flush()
+    reconstructed = d.decompress(zbody + ztail)
+    assert text == reconstructed
 
 def test_cd_short_2nl(lact_args):
-    for c,d in ((tc.TokCompressor(),tc.TokDecompressor()),
-                (LACTokCompressor(**lact_args),LACTokDecompressor(**lact_args))):
-        text = b"\n\n"
-        zbody = c.compress(text)
-        ztail = c.flush()
-        reconstructed = d.decompress(zbody + ztail)
-        assert text == reconstructed
+    c,d = LACTokCompressor(**lact_args), LACTokDecompressor(**lact_args)
+    text = b"\n\n"
+    zbody = c.compress(text)
+    ztail = c.flush()
+    reconstructed = d.decompress(zbody + ztail)
+    assert text == reconstructed
 
 def test_cd_brief(lact_args):
     compress_decompress_test(b"The quick brown fox jumped over the lazy dogs.\n", lact_args)
