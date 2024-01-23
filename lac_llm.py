@@ -165,6 +165,9 @@ def provide_model_on_cpu(model_name):
     model, _, _ = provide_model(model_name, "cpu")
     # assert host_device_of(model) == torch.device(device), \
     #     f"provide_just_model expected provide_model to return a model on {device}, but it's on {host_device_of(model)}"
+    # Set to evaluate only, no training, no autograd
+    model.eval()
+    model.requires_grad_(False)
     return model
 
 
@@ -197,13 +200,21 @@ class ModelOnDeviceCache:
             else:
                 model_on_cpu = self.model_on_cpu_provider(model_name)
                 self.cpu_model_cache[model_name] = model_on_cpu
-            model_on_device = copy.deepcopy(model_on_cpu).to(device)
+
+            if device != torch.device("cpu"):
+                model_on_device = copy.deepcopy(model_on_cpu).to(device)
+            else:
+                model_on_device = model_on_cpu
             self.model_device_cache[(model_name, device)] = model_on_device
 
             # assert host_device_of(model_on_device) == torch.device(device), \
             # f"ModelOnDeviceCache expected model on {device}, but it's on {host_device_of(model_on_device)}"
         yield model_on_device
 
+    def evict(self, model_name, device):
+        del self.model_device_cache[(model_name, torch.device(device))]
+        if torch.device(device) == torch.device('cpu'):
+            del self.cpu_model_cache[model_name]
 
 
 ################################################################
@@ -294,7 +305,7 @@ class LLMPredictor:
         make_torch_deterministic() # FIXME: where should this really be?
 
     def __call__(self, idx):
-        casting_cm = "no_autocast" in config.debug and nullcontext or autocast
+        casting_cm = "autocast" in config.debug and autocast or nullcontext
         with torch.no_grad(), casting_cm(), self.mc(self.model_name, self.device) as model:
             idx = idx.to(self.device)
 
@@ -343,3 +354,9 @@ def provide_prediction_service(model_name, device, threads=1, temperature=1.0) -
         pdb.set_trace()
     predictor = LLMPredictor(mdc, model_name, device, temperature)
     return LLMPredictionService(predictor)
+
+
+################################################################
+# Surgical tools
+
+# TBD

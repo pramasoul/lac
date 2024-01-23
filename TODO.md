@@ -20,6 +20,7 @@
 * [ ] Remove spurious `ctx`
 * [ ] Does LACTokDecompressor still need token_buffer?
 * [ ] Clean up the LACTokDecompressor save_toks?
+* [ ] Make the tests use sensible devices
 
 ## Command-line
 * [x] Make tlacz -m MODEL feed thru to actual effect
@@ -101,6 +102,10 @@
 
 ## Ideas & Research
 * [ ] Dealing with noise in pdf
-  * [ ] Quantization
+  * [ ] Quantization of logits
+  * [ ] Quantization of model
   * [ ] Spacing - "trees"
   * [ ] Backtracking weighted on proximity to quantization boundary
+
+## BUGS
+* [ ] Respect --device cpu if compresssed with --device cuda ?
