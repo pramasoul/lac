@@ -500,7 +500,7 @@ def test_decompress_respecting_header_generic_cuda(medium_text, lact_args):
     # E.g. pytest tests/test_lactok_compressor.py::test_decompress_respecting_header_generic_cuda --device cuda:3
 
     text = medium_text
-    # compress with cuda:0
+    # compress with cuda:1
     ka = copy.copy(lact_args)
     ka["device"] = "cuda:1"
     comp = LACTokCompressor(**ka)

@@ -73,6 +73,7 @@
 * [x] Test with other models
 * [x] Test as a shell-runnable command
 * [x] Make a test to run all the relevant tests
+* [ ] Fuzz tests
 
 ## Lurking Trouble
 * [x] Fix idx endless growth in prediction service

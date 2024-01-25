@@ -18,6 +18,14 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from config import SingletonConfig
+config = SingletonConfig()
+
+import sys
+def record(*args, **kwargs):
+    if hasattr(config, "model_record") and isinstance(config.model_record, list):
+        #sys.stderr.write(f"modelac record {args[0]}\n")
+        config.model_record.append(args)
 
 class LayerNorm(nn.Module):
     """LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False"""
@@ -28,8 +36,10 @@ class LayerNorm(nn.Module):
         self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
 
     def forward(self, input):
-        return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
-
+        #return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
+        rv = F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
+        record("LayerNorm", rv)
+        return rv
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
@@ -48,8 +58,8 @@ class CausalSelfAttention(nn.Module):
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
         if not self.flash:
-            print(
-                "WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0"
+            sys.stderr.write(
+                "WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0\n"
             )
             # causal mask to ensure that attention is only applied to the left in the input sequence
             self.register_buffer(
@@ -102,6 +112,7 @@ class CausalSelfAttention(nn.Module):
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
+        record("CausalSelfAttention", y)
         return y
 
 
@@ -115,9 +126,13 @@ class MLP(nn.Module):
 
     def forward(self, x):
         x = self.c_fc(x)
+        record("MLP.c_fc", x)
         x = self.gelu(x)
+        record("MLP.gelu", x)
         x = self.c_proj(x)
+        record("MLP.c_proj", x)
         x = self.dropout(x)
+        record("MLP.dropout", x)
         return x
 
 
@@ -131,7 +146,9 @@ class Block(nn.Module):
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
+        record("Block.attn", x)
         x = x + self.mlp(self.ln_2(x))
+        record("Block.mlp", x)
         return x
 
 
@@ -144,6 +161,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True  # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    verbose: bool = False
 
 
 class GPT(nn.Module):
@@ -181,7 +199,7 @@ class GPT(nn.Module):
                 )
 
         # report number of parameters
-        logging.info("number of parameters: %.2fM" % (self.get_num_params() / 1e6,))
+        logging.debug("number of parameters: %.2fM" % (self.get_num_params() / 1e6,))
 
     def get_num_params(self, non_embedding=True):
         """
@@ -213,11 +231,16 @@ class GPT(nn.Module):
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
+        record("GPT.tok_emb", tok_emb)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (t, n_embd)
+        record("GPT.pos_emb", pos_emb)
         x = self.transformer.drop(tok_emb + pos_emb)
+        record("GPT.drop", x)
         for block in self.transformer.h:
             x = block(x)
+            record("GPT.Block", x)
         x = self.transformer.ln_f(x)
+        record("GPT.ln_f", x)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
@@ -248,14 +271,14 @@ class GPT(nn.Module):
                 block.attn.bias = block.attn.bias[:, :, :block_size, :block_size]
 
     @classmethod
-    def from_pretrained(cls, model_type, override_args=None):
+    def from_pretrained(cls, model_type, override_args=None, verbose=None):
         assert model_type in {"gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"}
         override_args = override_args or {}  # default to empty dict
         # only dropout can be overridden see more notes below
         assert all(k == "dropout" for k in override_args)
         from transformers import GPT2LMHeadModel
 
-        print("loading weights from pretrained gpt: %s" % model_type)
+        verbose and sys.stderr.write("loading weights from pretrained gpt: %s\n" % model_type)
 
         # n_layer, n_head and n_embd are determined from model_type
         config_args = {
@@ -264,13 +287,13 @@ class GPT(nn.Module):
             "gpt2-large": dict(n_layer=36, n_head=20, n_embd=1280),  # 774M params
             "gpt2-xl": dict(n_layer=48, n_head=25, n_embd=1600),  # 1558M params
         }[model_type]
-        print("forcing vocab_size=50257, block_size=1024, bias=True")
+        verbose and sys.stderr.write("forcing vocab_size=50257, block_size=1024, bias=True\n")
         config_args["vocab_size"] = 50257  # always 50257 for GPT model checkpoints
         config_args["block_size"] = 1024  # always 1024 for GPT model checkpoints
         config_args["bias"] = True  # always True for GPT model checkpoints
         # we can override the dropout rate, if desired
         if "dropout" in override_args:
-            print(f"overriding dropout rate to {override_args['dropout']}")
+            verbose and sys.stderr.write(f"overriding dropout rate to {override_args['dropout']}\n")
             config_args["dropout"] = override_args["dropout"]
         # create a from-scratch initialized minGPT model
         config = GPTConfig(**config_args)
@@ -333,11 +356,11 @@ class GPT(nn.Module):
         ]
         num_decay_params = sum(p.numel() for p in decay_params)
         num_nodecay_params = sum(p.numel() for p in nodecay_params)
-        print(
-            f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters"
+        self.config.verbose and sys.stderr.write(
+            f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters\n"
         )
-        print(
-            f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters"
+        self.config.verbose and sys.stderr.write(
+            f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters\n"
         )
         # Create AdamW optimizer and use the fused version if it is available
         fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
@@ -346,7 +369,7 @@ class GPT(nn.Module):
         optimizer = torch.optim.AdamW(
             optim_groups, lr=learning_rate, betas=betas, **extra_args
         )
-        print(f"using fused AdamW: {use_fused}")
+        self.config.verbose and sys.stderr.write(f"using fused AdamW: {use_fused}\n")
 
         return optimizer
 
@@ -392,35 +415,6 @@ class GPT(nn.Module):
             probs = F.softmax(logits, dim=-1)
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)
-            # append sampled index to the running sequence and continue
-            idx = torch.cat((idx, idx_next), dim=1)
-
-        return idx
-
-    @torch.no_grad()
-    def compresserate(self, idx, sampler, device, temperature=1.0):
-        """
-        Take a conditioning sequence of indices idx (LongTensor of shape (b,t))
-        and a sampler, and run it 'til done
-        Most likely you'll want to make sure to be in model.eval() mode of operation for this.
-        """
-        while not sampler.compress_done and not sampler.decompress_done:
-            # if the sequence context is growing too long we must crop it at block_size
-            idx_cond = (
-                idx
-                if idx.size(1) <= self.config.block_size
-                else idx[:, -self.config.block_size :]
-            )
-            # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
-            # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)[-1]
-            # sample from the distribution
-            # print(f"idx.shape {idx.shape}")
-            actual = sampler.sample(probs.cpu())
-            idx_next = torch.tensor([[actual]]).to(device)
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 

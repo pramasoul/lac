@@ -18,17 +18,19 @@ import zlib
 
 import numpy as np
 import torch
+from torch import Tensor
+import torch.nn as nn
 from torch.cuda.amp import autocast
 from torch.nn import functional as F
 import tiktoken
 
 from binascii import hexlify
 from contextlib import contextmanager, nullcontext
-from gpt_model import GPTConfig, GPT
+#from gpt_model import GPTConfig, GPT
+from modelac import GPTConfig, GPT
 from pprint import pprint
 
 from config import SingletonConfig
-
 config = SingletonConfig()
 
 def make_torch_deterministic():
@@ -359,4 +361,129 @@ def provide_prediction_service(model_name, device, threads=1, temperature=1.0) -
 ################################################################
 # Surgical tools
 
-# TBD
+#if False: # Developing in Jupyter Lab notebook
+if True:
+
+    def view_as_int32(t: torch.Tensor) -> torch.Tensor:
+        shape = t.shape
+        device = t.device
+        as_np_uint8 = t.flatten().view(torch.uint8).to('cpu').numpy()
+        as_np_int32 = np.frombuffer(as_np_uint8,dtype=np.int32)
+        as_torch_int32 = torch.from_numpy(as_np_int32)
+        shaped = as_torch_int32.reshape(shape)
+        return shaped.to(device)
+
+
+    # Chat4 guided by me:
+    def bitwise_or_reduce(tensor):
+        # Ensure the tensor is <strike>on the GPU and </strike>flattened
+        tensor = tensor.flatten()#.to('cuda')
+
+        # Calculate the pad size to the next power of two
+        current_size = tensor.numel()
+        next_pow2 = 1 << current_size.bit_length()
+        pad_size = next_pow2 - current_size
+
+        # Pad the tensor if necessary
+        if pad_size > 0:
+            tensor = torch.cat([tensor, torch.zeros(pad_size, dtype=tensor.dtype, device=tensor.device)])
+
+        # Perform the successive folding
+        while tensor.numel() > 1:
+            half = tensor.numel() // 2
+            left, right = tensor[:half], tensor[half:half*2]
+            torch.bitwise_or(left, right, out=left)
+            tensor = left  # Reuse the left half for the next iteration
+
+        return tensor
+
+
+    def round_to_bits(t: torch.Tensor, n: int):
+        return (t*(1<<n)).round() * 1.0/(1<<n)
+
+
+    def round_to_bits_(t: torch.Tensor, n: int):
+        t *= 1<<n
+        torch.round_(t)
+        t *= 1.0/(1<<n)
+        return t
+
+
+    import torch.nn.modules.activation
+    import inspect
+
+    activation_classes = {cls_name: cls_obj for cls_name, cls_obj in inspect.getmembers(torch.nn.modules.activation, inspect.isclass)}
+
+    def is_activation_class(obj):
+        return obj.__class__ in activation_classes.values()
+
+
+    class Quactivation(nn.Module):
+        def __init__(self, activation, n_bits) -> None:
+            super().__init__()
+            self.activation = activation
+            self.n_bits = n_bits
+
+        def forward(self, x: Tensor) -> Tensor:
+            return round_to_bits_(self.activation(x), self.n_bits)
+
+        def extra_repr(self) -> str:
+            #return super().extra_repr() + "round_to_bits={}".format(self.n_bits)
+            return "round_to_bits={}".format(self.n_bits)
+
+if False: # Developing in Jupyter Lab notebook
+    def quantize_module(module, n_bits):
+        children = list(module.named_children())
+
+        for name, child in children:
+            #print(name, child)
+            if isinstance(child, Quactivation):
+                # Already wrapped, skip
+                continue
+            if hasattr(child, "weight"):
+                round_to_bits_(child.weight, n_bits - child.weight.abs().max().log2().ceil().int().item())
+                #print('   '.join(binstack(child.weight.flatten()[:3])))
+            elif type(child) in activation_classes.values():
+                # Wrap the activation function
+                wrapped_activation = Quactivation(child, n_bits)
+                setattr(module, name, wrapped_activation)
+            else:
+                # Recursively apply to child modules
+                quantize_module(child, n_bits)
+
+
+
+################################################################
+# Visualization tools
+
+if True:
+    def about(in_x):
+        x = in_x.to(torch.float64)
+        print(f"{x.shape}, {in_x.dtype}, ({x.max()}, {x.mean()}, {x.min()}), {(x*x).mean(dtype=torch.float32):.3e}")
+
+    def f32_delimit(s:str) -> str:
+        return s[0] + '|' + s[1:9] + '|' + s[9:]
+
+    def binstack(t: torch.Tensor) -> str:
+        """Bitwise representation of a tensor"""
+        t_uint8 = t.flatten().view(torch.uint8)
+        t_bs = [format(x.item(), '08b') for x in t_uint8]
+        n = t.element_size()
+        # Assuming little-endian:
+        bit_strs = [''.join(reversed(t_bs[i:i+n])) for i in range(0, len(t_bs), n)]
+        if t.dtype == torch.float32:
+            bit_strs = [f32_delimit(s) for s in bit_strs]
+        return bit_strs
+
+    def float_to_binary(v):
+        return binstack(torch.tensor(v))[0]
+
+    def or_all(tensor_iter):
+        per_param = [bitwise_or_reduce(view_as_int32(p)) for p in iter(tensor_iter)]
+        return bitwise_or_reduce(torch.tensor(per_param, dtype=torch.int32))
+
+    def binor_all(t_iter):
+        return f32_delimit(binstack(or_all(iter(t_iter)))[0])
+
+    def binor_model(model):
+        return f32_delimit(binstack(or_all(model.parameters()))[0])
