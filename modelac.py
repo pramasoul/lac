@@ -21,11 +21,23 @@ from torch.nn import functional as F
 from config import SingletonConfig
 config = SingletonConfig()
 
+# FIXME: This should be accomplised after model loading instead.
+# Use ``register_forward_hook``
 import sys
 def record(*args, **kwargs):
+    return # DEBUG
     if hasattr(config, "model_record") and isinstance(config.model_record, list):
         #sys.stderr.write(f"modelac record {args[0]}\n")
         config.model_record.append(args)
+
+# FIXME: This should be accomplised after model loading instead.
+# Use ``register_forward_hook``
+def quantize(x):
+    return x # DEBUG
+    if hasattr(config, "post_quantization_function"):
+        return config.post_quantization_function(x)
+    else:
+        return x
 
 class LayerNorm(nn.Module):
     """LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False"""
@@ -39,6 +51,7 @@ class LayerNorm(nn.Module):
         #return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
         rv = F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
         record("LayerNorm", rv)
+        rv = quantize(rv)
         return rv
 
 class CausalSelfAttention(nn.Module):
@@ -57,6 +70,11 @@ class CausalSelfAttention(nn.Module):
         self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
+
+        # FIXME:
+        #   Causes "Missing key(s) in state_dict: "transformer.h.0.attn.bias", "transformer.h.1.attn.bias", ..."
+        #   when loading "internal" model, presum. because was created w/o     
+        #self.flash = False #DEBUG
         if not self.flash:
             sys.stderr.write(
                 "WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0\n"
@@ -109,10 +127,12 @@ class CausalSelfAttention(nn.Module):
         y = (
             y.transpose(1, 2).contiguous().view(B, T, C)
         )  # re-assemble all head outputs side by side
+        y = quantize(y)
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         record("CausalSelfAttention", y)
+        y = quantize(y)
         return y
 
 
@@ -127,10 +147,13 @@ class MLP(nn.Module):
     def forward(self, x):
         x = self.c_fc(x)
         record("MLP.c_fc", x)
+        x = quantize(x)
         x = self.gelu(x)
         record("MLP.gelu", x)
+        x = quantize(x)
         x = self.c_proj(x)
         record("MLP.c_proj", x)
+        x = quantize(x)
         x = self.dropout(x)
         record("MLP.dropout", x)
         return x
@@ -147,8 +170,10 @@ class Block(nn.Module):
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
         record("Block.attn", x)
+        x = quantize(x)
         x = x + self.mlp(self.ln_2(x))
         record("Block.mlp", x)
+        x = quantize(x)
         return x
 
 
@@ -232,15 +257,20 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         record("GPT.tok_emb", tok_emb)
+        tok_emb = quantize(tok_emb)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (t, n_embd)
         record("GPT.pos_emb", pos_emb)
+        pos_emb = quantize(pos_emb)
         x = self.transformer.drop(tok_emb + pos_emb)
         record("GPT.drop", x)
+        x = quantize(x)
         for block in self.transformer.h:
             x = block(x)
             record("GPT.Block", x)
+            x = quantize(x)
         x = self.transformer.ln_f(x)
         record("GPT.ln_f", x)
+        x = quantize(x)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
