@@ -125,7 +125,7 @@ def layer_norm(
 
     """
 
-    x_mean, x_var = x.mean(axis=1, keepdims=True), x.var(axis=1, keepdims=True)
+    x_mean, x_var = x.mean(axis=-1, keepdims=True), x.var(axis=-1, keepdims=True)
     lnorm = (x - x_mean) / np.sqrt(x_var + eps)
     y = lnorm
     if weight is not None:
@@ -135,8 +135,8 @@ def layer_norm(
     return y
 
 
-def savez_torch_nn_parameters(module):
-    np.savez_compressed('int_z', **dict(module.named_parameters()))
+def savez_torch_nn_parameters(str_or_file, module):
+    np.savez_compressed(str_or_file, **dict(module.named_parameters()))
 
 
 def load_to_xp(filename):
@@ -144,9 +144,15 @@ def load_to_xp(filename):
     return dict((k, xp.array(v)) for k, v in npz.items())
 
 
-def forward_model_dict(d: dict, idx: NDArray, config=GPTConfig()):
+def forward_model_dict(d: dict, idx: NDArray, config=GPTConfig(), recorder=None):
+    if recorder is None:
+        rec = lambda name, v: None
+    else:
+        rec = recorder
     n_embd = config.n_embd
     n_head = config.n_head
+    rec('model', idx)
+    x = None
     for name, array in d.items():
         name_els = name.split('.')
         assert name_els.pop(0) == 'transformer'
@@ -155,28 +161,35 @@ def forward_model_dict(d: dict, idx: NDArray, config=GPTConfig()):
             case 'wte':
                 # print("got wte", name_els, array.shape)
                 tok_emb = array[idx]
+                rec('tok_emb', tok_emb)
+
             case 'wpe':
                 # print("got wpe", name_els, array.shape)
                 block_size = array.shape[0]
+                assert block_size == config.block_size
                 lt_ones = xp.tril(xp.ones((block_size, block_size))).reshape(1, 1, block_size, block_size) #For attention mask generation
                 # print(f"{block_size=}")
-                b, t = idx.shape
+                b, t = idx.shape # dimensions of batch, tokens
                 assert t <= block_size, f"Cannot forward sequence of length {t}, block size is only {block_size}"
                 pos = xp.arange(0, t, dtype=xp.uint32) # shape (t)                                                                                                                                                                                                          
                 pos_emb = array[pos]
+                rec('pos_emb', pos_emb)
                 x = tok_emb + pos_emb
+
             case 'h':
                 block = int(name_els.pop(0))
                 layer = name_els.pop(0)
                 # print(f"{block=} {layer=}", end=": ")
                 match layer:
-                    case _ if layer.startswith('ln_') or layer.startswith('ln_2'):
+                    case _ if layer.startswith('ln_'):
                         # print(" norm", name_els, array.shape)
                         x = layer_norm(x, weight=array)
+
                     case 'attn':
                         B, T, C = x.shape # batch size, sequence length, embedding dimensionality (n_embd)
                         # print(f"{B=}, {T=}, {C=}")
                         match name_els.pop(0):
+
                             case 'c_attn':
                                 # print(" attention", name_els, array.shape)
                                 assert config.n_embd % config.n_head == 0
@@ -189,38 +202,53 @@ def forward_model_dict(d: dict, idx: NDArray, config=GPTConfig()):
                                 q = q.reshape(B, T, n_head, C // n_head).transpose(0, 2, 1, 3) # (B, nh, T, hs) 
                                 v = v.reshape(B, T, n_head, C // n_head).transpose(0, 2, 1, 3) # (B, nh, T, hs) 
                                 # print(k.shape)
-                                att = xp.matmul(q, k.transpose(0, 1, 3, 2)) * (1.0 / xp.sqrt(k.shape[-1]))
+                                att = xp.matmul(q, k.transpose(0, 1, 3, 2)) * (1.0 / xp.sqrt(k.shape[-1], dtype=x.dtype))
                                 # Manually broadcast the mask to match the shape of `att`
                                 mask = (lt_ones[:,:,:T,:T] == 0)
                                 broadcasted_mask = xp.broadcast_to(mask, att.shape)
                                 att[broadcasted_mask] = xp.full((), -xp.inf, dtype=att.dtype)
                                 att = softmax(att, axis=-1)
                                 # print(f"{att.shape=}")
-                                y = xp.matmul(att, v) # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+                                x = xp.matmul(att, v) # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
                                 
                                 # Transpose y from (B, n_head, T, C // n_head) to (B, T, n_head, C // n_head)
-                                y = y.transpose(0, 2, 1, 3)
+                                x = x.transpose(0, 2, 1, 3)
                                 
-                                # Reshape y to re-assemble all head outputs side by side -> (B, T, C)
-                                y = y.reshape(B, T, C)
-                                # print(f"{y.shape=}")
+                                # Reshape x to re-assemble all head outputs side by side -> (B, T, C)
+                                x = x.reshape(B, T, C)
+                                # print(f"{x.shape=}")
+
                             case 'c_proj':
                                 # print(" projection", name_els, array.shape)
-                                y = xp.matmul(y, array.T)
-                                x = y
+                                x = xp.matmul(x, array.T)
+
                     case 'mlp':
                         # print(" multi-layer perceptron", name_els, array.shape)
                         match name_els.pop(0):
                             case 'c_fc':
                                 x = xp.matmul(x, array.T)
                                 x = gelu(x)
+
                             case 'c_proj':
                                 x = xp.matmul(x, array.T)
             case 'ln_f':
                 # print("final layer norm", name_els, array.shape)
                 x = layer_norm(x, weight=array)
-                y = xp.matmul(x[:, [-1], :], d['transformer.wte.weight'].T)
-    return y
+                x = xp.matmul(x[:, [-1], :], d['transformer.wte.weight'].T)
+
+        rec(name, x)
+
+    return x
+
+
+r""" Appears to be blowing up at ln_2:
+(Pdb) p k_about('transformer.h.0.ln_1')
+torch.Size([1, 62, 768]), torch.float32, (1.430511474609375e-06, 1.2510833086355799e-09, -1.430511474609375e-06), 1.953e-15, cpu
+(Pdb) p k_about('transformer.h.0.attn.c_proj')
+torch.Size([1, 62, 768]), torch.float64, (3.467132241308235e-07, 5.793751256029128e-11, -1.3253321706763188e-07), 5.465e-17, cpu
+(Pdb) p k_about('transformer.h.0.ln_2')
+torch.Size([1, 62, 768]), torch.float64, (69.91600013699261, 0.02690269140492304, -19.65265927854617), 2.566e+00, cpu
+"""
 
 
 
