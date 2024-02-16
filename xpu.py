@@ -4,13 +4,14 @@ from scipy.special import erf
 
 
 import numpy as np
-try:
-    import cupy as cp
-    xp = cp  # Use CuPy (GPU) if available
-    #print("Using CuPy for GPU support.")
-except ImportError:
-    xp = np  # Fall back to NumPy (CPU) if CuPy is not available
-    #print("Falling back to NumPy for CPU support.")
+# try:
+#     import cupy as cp
+#     xp = cp  # Use CuPy (GPU) if available
+#     #print("Using CuPy for GPU support.")
+# except ImportError:
+#     xp = np  # Fall back to NumPy (CPU) if CuPy is not available
+#     #print("Falling back to NumPy for CPU support.")
+xp = np # DEBUG
 
 NDArray = type(xp.ndarray)
 
@@ -181,15 +182,23 @@ def forward_model_dict(d: dict, idx: NDArray, config=GPTConfig(), recorder=None,
                 x = x + pos_emb
 
             case 'h':
+
+                # Block is residual connection:
+                # def forward(self, x):
+                #     x = x + self.attn(self.ln_1(x))
+                #     x = x + self.mlp(self.ln_2(x))
+                #     return x
+
                 block = int(name_els.pop(0))
                 layer = name_els.pop(0)
                 # print(f"{block=} {layer=}", end=": ")
                 match layer:
                     case _ if layer.startswith('ln_'):
-                        # print(" norm", name_els, array.shape)
+                        pre_ln_x = x
                         x = layer_norm(x, weight=array)
 
                     case 'attn':
+
                         B, T, C = x.shape # batch size, sequence length, embedding dimensionality (n_embd)
                         # print(f"{B=}, {T=}, {C=}")
                         match name_els.pop(0):
@@ -222,11 +231,13 @@ def forward_model_dict(d: dict, idx: NDArray, config=GPTConfig(), recorder=None,
                                 
                                 # Reshape x to re-assemble all head outputs side by side -> (B, T, C)
                                 x = x.reshape(B, T, C)
-                                # print(f"{x.shape=}")
 
                             case 'c_proj':
                                 # print(" projection", name_els, array.shape)
                                 x = xp.matmul(x, array.T)
+
+                                # x is the residual; add to it the straight path as saved by the layer norm step
+                                x += pre_ln_x
 
                     case 'mlp':
                         # print(" multi-layer perceptron", name_els, array.shape)
@@ -237,6 +248,9 @@ def forward_model_dict(d: dict, idx: NDArray, config=GPTConfig(), recorder=None,
 
                             case 'c_proj':
                                 x = xp.matmul(x, array.T)
+                                # x is the residual; add to it the straight path as saved by the layer norm step
+                                x += pre_ln_x
+
             case 'ln_f':
                 # print("final layer norm", name_els, array.shape)
                 x = layer_norm(x, weight=array)

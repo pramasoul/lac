@@ -362,23 +362,69 @@ def provide_prediction_service(model_name, device, threads=1, temperature=1.0) -
 
 #if False: # Developing in Jupyter Lab notebook
 if True:
-
+    
     # torch.nn.Module hooks
+
+    # Capture the input to modules
+    # Installed with module.register_module_forward_pre_hook(hook: Callable[..., None]) -> RemovableHandle
+    # The hook will be called every time before :func:`forward` is invoked.
+    # It should have the following signature::
+
+    #     hook(module, input) -> None or modified input
+
+    # The input contains only the positional arguments given to the module.
+    # Keyword arguments won't be passed to the hooks and only to the ``forward``.
+    # The hook can modify the input. User can either return a tuple or a
+    # single modified value in the hook. We will wrap the value into a tuple
+    # if a single value is returned(unless that value is already a tuple).
+
+
+    # To include a name, this gets wrapped in a lambda at hook time:
+    def record_module_input(name, module_input):
+        """Record the module's input"""
+        if hasattr(config, "model_record") \
+           and isinstance(config.model_record, dict) \
+           and 'input' in config.model_record \
+           and isinstance(config.model_record['input'], list):
+            config.model_record['input'].append((name, module_input))
+        return None             # Don't modify the inputs for the module
+
+
+    # Capture the output of modules
     # Installed with module.register_forward_hook(hook, *, prepend=False, with_kwargs=False, always_call=False)
     # Called as hook(module, args, output) -> None or modified output, if installed with_kwargs=False
     # Called as hook(module, args, kwargs, output) -> None or modified output, if installed with_kwargs=True
 
-    # To include a name, this one gets wrapped in a lambda at hook time:
+    # To include a name, this gets wrapped in a lambda at hook time:
     def record_module_output(name, output):
         """Record the module's output"""
-        if hasattr(config, "model_record") and isinstance(config.model_record, list):
-            config.model_record.append((name, output))
+        if isinstance(output, tuple):
+            output = output[0] # HACK to get the logits free of the (logits, loss) tuple
+        if hasattr(config, "model_record") \
+           and isinstance(config.model_record, dict) \
+           and 'output' in config.model_record \
+           and isinstance(config.model_record['output'], list):
+
+            if True: # Paranoid behavior
+                import copy
+                import numpy as np
+                import cupy as cp
+                if isinstance(output, Tensor):
+                    output = output.cpu()
+                if hasattr(output, 'get'): # cupy.array has this method, which gets an np.array
+                    output = output.get()
+                output = copy.deepcopy(output+0)
+
+            config.model_record['output'].append((name, output)) # Paranoid or not, append the result
 
     def hook_model_for_recording(model):
         record_handles = {}
         for name, module in model.named_modules():
-            f = lambda module, args, output, name=name: record_module_output(name, output)
-            record_handles[name] = module.register_forward_hook(f)
+            pre_f = lambda module, module_input, name=name: record_module_input(name, module_input)
+            pre_handle = module.register_forward_pre_hook(pre_f)
+            post_f = lambda module, args, output, name=name: record_module_output(name, output)
+            post_handle = module.register_forward_hook(post_f)            
+            record_handles[name] = pre_handle, post_handle
         return record_handles
 
 
