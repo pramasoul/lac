@@ -4,14 +4,14 @@ from scipy.special import erf
 
 
 import numpy as np
-# try:
-#     import cupy as cp
-#     xp = cp  # Use CuPy (GPU) if available
-#     #print("Using CuPy for GPU support.")
-# except ImportError:
-#     xp = np  # Fall back to NumPy (CPU) if CuPy is not available
-#     #print("Falling back to NumPy for CPU support.")
-xp = np # DEBUG
+try:
+    import cupy as cp
+    xp = cp  # Use CuPy (GPU) if available
+    #print("Using CuPy for GPU support.")
+except ImportError:
+    xp = np  # Fall back to NumPy (CPU) if CuPy is not available
+    #print("Falling back to NumPy for CPU support.")
+#xp = np # DEBUG
 
 NDArray = type(xp.ndarray)
 

@@ -405,7 +405,7 @@ if True:
            and 'output' in config.model_record \
            and isinstance(config.model_record['output'], list):
 
-            if True: # Paranoid behavior
+            if False: # Paranoid behavior
                 import copy
                 import numpy as np
                 import cupy as cp

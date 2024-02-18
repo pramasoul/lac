@@ -701,6 +701,7 @@ def test_torch_xp_correspondence(trd_xrd, savez_loaded_to_xp_dict, model, brief_
     # close = [kx for kx, ax in xrd.items() if kx in trd.keys() and closenuf(ax, t2x(trd[kx]))]
 
     assert closenuf(xp_logits, t2x(torch_logits))
+    assert 0
 
 ################
 

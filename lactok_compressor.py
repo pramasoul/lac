@@ -20,8 +20,8 @@ import numpy as np
 
 from typing import List, Tuple
 
-from lac_llm import provide_model, provide_prediction_service
-from lac_llm import PredictionService, FlatPredictionService, CountingPredictionService
+from lac_llm import provide_prediction_service
+from lac_llm import PredictionService
 from ac2_for_z import PDFPredictor, A_to_bin, A_from_bin
 
 from config import SingletonConfig
@@ -204,7 +204,7 @@ class LACTokCompressor:
         self.tok_mode = tok_mode #DEBUG
         if self.tok_mode == "buffer minimum for correct":
             self.tok_max = max(len(self.tok_enc.decode([i])) for i in range(self.tok_enc.n_vocab))
-        logging.debug(f"LAXTokCompressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
+        logging.debug(f"LACTokCompressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
         if "mem" in config.debug:
             import pdb
             pdb.set_trace()
@@ -388,7 +388,7 @@ class LACTokDecompressor:
 
         self.tok_enc = tiktoken.get_encoding(encoding_name)
         self.eot_token = self.tok_enc.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
-        logging.debug(f"LAXTokecmpressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
+        logging.debug(f"LACTokDecompressor calling provide_prediction_service({model_name=}, {device=}, {threads=}, {temperature=})\n")
         assert device is not None
         self.predictor = None   # Defer creation until we've parsed the header
         logging.debug(f"LACTokDecompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
