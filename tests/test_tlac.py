@@ -174,6 +174,13 @@ def test_tmp_dir_s(tmp_dir_s):
     with open(file_path, "w") as file:
         file.write("Hello, world!")
 
+@pytest.fixture(scope="session") # Because it's all determined on the command line this way
+def lact_args(model_name, device, threads):
+    return { "model_name": model_name,
+             "device": device,
+             "threads": threads,
+    }
+
 
 @pytest.fixture(scope="session")
 def lac_name():
@@ -195,16 +202,20 @@ def test_short_lacz_c(lac_name, short_lacz_c, short_text):
     assert out.decode() == short_text 
     
 @pytest.fixture(scope="session")
-def short_lacz_g(lac_name, short_text, tmp_dir_s):
+def short_lacz_g(lac_name, short_text, tmp_dir_s, device):
     file_path = tmp_dir_s / "short_g.lacz"
+    if not device.startswith("cuda"):
+        device = "cuda"
     out = subprocess.check_output(
-        f"echo -n {short_text} | {lac_name} --device cuda -o {file_path}", shell=True
+        f"echo -n {short_text} | {lac_name} --device {device} -o {file_path}", shell=True
     )
     return file_path
 
-def test_short_lacz_g(lac_name, short_lacz_g, short_text):
+def test_short_lacz_g(lac_name, short_lacz_g, short_text, device):
+    if not device.startswith("cuda"):
+        device = "cuda"
     out = subprocess.check_output(
-        f"{lac_name} --device cuda -d {short_lacz_g} --stdout", shell=True
+        f"{lac_name} --device {device} -d {short_lacz_g} --stdout", shell=True
     )
     assert out.decode() == short_text 
     

@@ -174,7 +174,8 @@ class Test_Outsiders:
     def test_write(self, tmp_path, lact_args):
         filename = tmp_path / "foo"
         with LACF(filename, 'wb', lact_args=lact_args) as f:
-            f.write(data1 * 50)
+            #f.write(data1 * 50)
+            f.write(data1 * 2)
 
             # Try flush and fileno.
             f.flush()

@@ -13,15 +13,15 @@ import struct
 import subprocess
 import sys
 import tiktoken
-import torch
+#import torch # FIXME
 import zlib
 
 import numpy as np
 
 from typing import List, Tuple
 
-from lac_llm import provide_prediction_service
-from lac_llm import PredictionService
+from lac_llm_xp import provide_prediction_service
+from lac_llm_xp import PredictionService
 from ac2_for_z import PDFPredictor, A_to_bin, A_from_bin
 
 from config import SingletonConfig
@@ -86,14 +86,24 @@ def get_versions() -> dict[str]:
     sys_cuda_release, sys_cuda_build = get_nvcc_version_info()
     rv = {
         "lacz": __version__,
-        "torch": torch.__version__,
-        "cuda": torch.version.cuda,
-        "cudnn": torch.backends.cudnn.version(),
         "sys_cuda_build": sys_cuda_build,
         "sys_cuda_release": sys_cuda_release,
         "python": get_python_version_number_string(),
-        "np": np.__version__,
     }
+    if 'torch' in sys.modules:
+        rv.update({
+            "torch": sys.modules['torch'].__version__,
+            "cuda": sys.modules['torch'].version.cuda,
+            "cudnn": sys.modules['torch'].backends.cudnn.version(),
+        })
+    if 'numpy' in sys.modules:
+        rv.update({
+            "np": sys.modules['numpy'].__version__,
+        })
+    if 'cupy' in sys.modules:
+        rv.update({
+            "cp": sys.modules['cupy'].__version__,
+        })
     return rv
 
 
@@ -168,15 +178,25 @@ class TokPredictor(PDFPredictor):
         #                  f"{sum(self.pdf)=}, {sum(self.pdf)-len(self.pdf)-self.accepts=}"])
         return f"TokPredictor: {self.max_token}, {self.precision} {self.accepts=}"
     
+    def psp_on_cpu(self):
+        if hasattr(self.prediction_service.probabilities, 'cpu'):
+            pc = self.prediction_service.probabilities.cpu()
+        elif hasattr(self.prediction_service.probabilities, 'get'):
+            pc = self.prediction_service.probabilities.get()
+        else:
+            pc = self.prediction_service.probabilities
+        return pc
+    
     def restart(self):
         self.prediction_service.restart()
-        self.set_cdf_from_pdf(self.prediction_service.probabilities.cpu())
+        #self.set_cdf_from_pdf(self.prediction_service.probabilities.cpu())
+        self.set_cdf_from_pdf(self.psp_on_cpu())
         self.accepts = 0
 
     def accept(self, tok):
         assert 0 <= tok <= self.max_token
         self.prediction_service.accept(tok)
-        self.set_cdf_from_pdf(self.prediction_service.probabilities.cpu())
+        self.set_cdf_from_pdf(self.psp_on_cpu())
         self.accepts += 1
 
 
@@ -208,11 +228,11 @@ class LACTokCompressor:
         if "mem" in config.debug:
             import pdb
             pdb.set_trace()
-        self.predictor = TokPredictor(self.eot_token, provide_prediction_service(model_name=model_name,
-                                                                                 device=device,
-                                                                                 threads=threads,
-                                                                                 temperature=temperature,
-        ))
+        self.predictor = TokPredictor(self.eot_token,
+                                      provide_prediction_service(model_name=model_name,
+                                                                 device=device,
+                                                                 temperature=temperature,
+                                      ))
         logging.debug(f"LACTokCompressor: {encoding_name} <|endoftext|> is {self.eot_token}")
         self.a2b = A_to_bin(self.predictor, PRECISION)
         self.binary_input_buffer = b""
