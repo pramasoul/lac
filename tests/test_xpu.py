@@ -26,7 +26,7 @@ from lac_llm import *
 
 import xpu
 from xpu import NDArray
-from xpu import xp
+from xpu import cpnp
 
 
 # Configure logging
@@ -281,7 +281,7 @@ def test_savez_loaded_to_xp_dict(savez_loaded_to_xp_dict, model):
     assert isinstance(md, dict)
     assert len(list(md.keys())) == 75
     assert all(k.startswith('transformer.') for k in md.keys())
-    assert all(isinstance(v, xp.ndarray) for k, v in md.items())
+    assert all(isinstance(v, cpnp().ndarray) for k, v in md.items())
     for name, t in model.named_parameters():
         assert (md[name] == t2x(t)).all(), name
 
@@ -290,31 +290,32 @@ def test_savez_loaded_to_xp_dict(savez_loaded_to_xp_dict, model):
 # torch <-> xp conversions
 
 def x2t(x):
+    xp = cpnp()
     if xp == cp:
-        x = xpu.xp.asnumpy(x)
+        x = xp.asnumpy(x)
     else:
-        x = xpu.xp.array(x)
+        x = xp.array(x)
     return torch.from_numpy(x)
 
 def test_x2t():
-    a = xp.arange(3)
+    a = cpnp().arange(3)
     t = x2t(a)
     assert all(t == torch.arange(3))
 
 
 def t2x(t):
-    return xpu.xp.asarray(t)
+    return xpu.cpnp().asarray(t)
 
 def test_t2x():
     t = torch.arange(3)
-    assert xp.all(t2x(t) == xp.arange(3))
+    assert cpnp().all(t2x(t) == cpnp().arange(3))
 
 def xify(f):
     return lambda x: t2x(f(x2t(x)))
 
 def test_xify():
     ft_arange = xify(torch.arange)
-    assert xp.all(ft_arange(3) == xp.arange(3))
+    assert cpnp().all(ft_arange(3) == cpnp().arange(3))
     
 
 ################
@@ -330,27 +331,27 @@ def test_GPTConfig():
 
 
 def test_softmax():
-    assert xp.all(xpu.softmax(xp.ones(3)) == xp.ones(3)/3)
-    x = xp.arange(3, dtype=xp.float32)
-    assert xp.allclose(xpu.softmax(x), t2x(F.softmax(x2t(x), dim=0)))
+    assert cpnp().all(xpu.softmax(cpnp().ones(3)) == cpnp().ones(3)/3)
+    x = cpnp().arange(3, dtype=cpnp().float32)
+    assert cpnp().allclose(xpu.softmax(x), t2x(F.softmax(x2t(x), dim=0)))
 
 
 def test_gelu():
-    x = xp.linspace(-3, 3)
+    x = cpnp().linspace(-3, 3)
     y = xpu.gelu(x)
-    assert xp.allclose(y, xify(F.gelu)(x))
+    assert cpnp().allclose(y, xify(F.gelu)(x))
 
 
 def test_layer_norm():
-    x = xp.linspace(-2, 4)
+    x = cpnp().linspace(-2, 4)
     y = xpu.layer_norm(x)
     # torch.layer_norm(input, normalized_shape, weight, bias, eps)
     t_lyn = lambda x: t2x(F.layer_norm(x2t(x), x.shape))
-    assert xp.allclose(y, t_lyn(x))
-    w = xp.linspace(1, 2)
+    assert cpnp().allclose(y, t_lyn(x))
+    w = cpnp().linspace(1, 2)
     yw = xpu.layer_norm(x, w)
     t_lynw = lambda x: t2x(F.layer_norm(x2t(x), x.shape, x2t(w)))
-    assert xp.allclose(yw, t_lynw(x))    
+    assert cpnp().allclose(yw, t_lynw(x))    
 
 
 
@@ -381,7 +382,7 @@ def test_logits_and_recording_torch(miked_model_and_handles, brief_toks):
 
 
 def logits_and_recording_xp(md, brief_toks):
-    idx_xp = xp.asarray([brief_toks]) # one batch
+    idx_xp = cpnp().asarray([brief_toks]) # one batch
     logging.debug("idx_xp %r", idx_xp)
     config.model_record = {'output': []}
     y_xp = xpu.forward_model_dict(md, idx_xp, recorder=record_module_output)
@@ -393,7 +394,7 @@ def logits_and_recording_xp(md, brief_toks):
 def test_logits_and_recording_xp(savez_loaded_to_xp_dict, brief_toks):
     md = savez_loaded_to_xp_dict
     logits, recording = logits_and_recording_xp(md, brief_toks)
-    assert type(recording[0][1]) == xp.ndarray
+    assert type(recording[0][1]) == cpnp().ndarray
     xmrd = dict(recording)
     assert 'transformer.wte.weight' in xmrd.keys()
 
@@ -451,8 +452,8 @@ def test_dtypes_of_recordings(trd_xrd):
     trd, xrd = trd_xrd
     # Check the data types in the recordings are consistent as expected
     assert all(v.dtype == torch.float32 for v in trd.values() if type(v) is torch.Tensor)
-    assert all(v.dtype == xp.float32 for k, v in xrd.items() if k != 'model') # The 'model' entry records the tokens to the model forward
-    assert xrd['model'].dtype == xp.int64 # The 'model' entry records the tokens to the model forward
+    assert all(v.dtype == cpnp().float32 for k, v in xrd.items() if k != 'model') # The 'model' entry records the tokens to the model forward
+    assert xrd['model'].dtype == cpnp().int64 # The 'model' entry records the tokens to the model forward
 
 
 if False:
@@ -502,13 +503,13 @@ def test_transformer_h_0_ln_2(trid_trod_xrd, savez_loaded_to_xp_dict, model):
     # What's up with the calculation of the first Block's second LayerNorm?
     trid, trd, xrd = trid_trod_xrd
 
-    md = savez_loaded_to_xp_dict # The dictionary of named parameters in xp.ndarray form
+    md = savez_loaded_to_xp_dict # The dictionary of named parameters in cpnp().ndarray form
 
     # for DEBUG convenience:
     ta, tb = t2x(trd['transformer.h.0.attn']), t2x(trd['transformer.h.0.ln_2'])
     na, nb = xrd['transformer.h.0.attn.c_proj'], xrd['transformer.h.0.ln_2']
 
-    if not xp.allclose(xrd['transformer.h.0.ln_2'], t2x(trd['transformer.h.0.ln_2']), atol=1e-4, rtol=1e-4):
+    if not cpnp().allclose(xrd['transformer.h.0.ln_2'], t2x(trd['transformer.h.0.ln_2']), atol=1e-4, rtol=1e-4):
         logging.debug("Mean squared difference of %s is %f" %
                       ('transformer.h.0.ln_2',
                        ((xrd['transformer.h.0.ln_2'] - t2x(trd['transformer.h.0.ln_2']))**2).mean()))
@@ -518,7 +519,7 @@ def test_transformer_h_0_ln_2(trid_trod_xrd, savez_loaded_to_xp_dict, model):
         # Get the input ("x") to the layer norm from the output of the preceeding stage in the recordings
         x = xrd['transformer.h.0.attn.c_proj'] # From the xp recording, the c_proj result is input to ln_2
         putative_t_x = trd['transformer.h.0.attn.c_proj'] # From the torch recording, for comparison
-        assert xp.allclose(x, t2x(putative_t_x), rtol=1e-06, atol=1e-6) # which should match +-
+        assert cpnp().allclose(x, t2x(putative_t_x), rtol=1e-06, atol=1e-6) # which should match +-
         t_x = trid['transformer.h.0.ln_2'] # The recorded input to the torch ln_2
         assert (putative_t_x == t_x).all()
 
@@ -526,7 +527,7 @@ def test_transformer_h_0_ln_2(trid_trod_xrd, savez_loaded_to_xp_dict, model):
         w = md['transformer.h.0.ln_2.weight'] # From the xp model, the weight vector to use
         t_w = model.transformer.h[0].ln_2.weight # From the torch model
         # which should match the torch model exactly, as there should be no loss in going from torch to numpy
-        assert xp.all(w == t2x(t_w)) # xp way
+        assert cpnp().all(w == t2x(t_w)) # xp way
         assert (x2t(w) == t_w).all()  # torch way
 
         assert x.shape[-1] == w.shape[-1] # and which must match the shape of what it's scaling
@@ -534,11 +535,11 @@ def test_transformer_h_0_ln_2(trid_trod_xrd, savez_loaded_to_xp_dict, model):
         # Compare xpu and torch's layer norm calculation from their respective inputs
         xw = xpu.layer_norm(x, w)   # The layer norm calculation as we do it
         t_xw = F.layer_norm(t_x, t_w.shape, t_w, None, 1e-5)  # Layer norm as pytorch calculates it from its input
-        assert xp.allclose(xw, t2x(t_xw), rtol=1e-04, atol=1e-4) # Expect reasonable correspondence
+        assert cpnp().allclose(xw, t2x(t_xw), rtol=1e-04, atol=1e-4) # Expect reasonable correspondence
 
         # Compare our and torch's layer norm calculation from the same input
         t_xpxw = F.layer_norm(x2t(x), t_w.shape, x2t(w), None, 1e-5)  # Layer norm as pytorch calculates it from xp's inputs
-        assert xp.allclose(xw, t2x(t_xpxw), rtol=1e-05, atol=1e-5) # Agrees more tightly with our calculation
+        assert cpnp().allclose(xw, t2x(t_xpxw), rtol=1e-05, atol=1e-5) # Agrees more tightly with our calculation
         
         # Calculate using the torch ln_2 model forward
         t_h0_ln_2 = model.transformer.h[0].ln_2(t_x)
@@ -549,7 +550,7 @@ def test_transformer_h_0_ln_2(trid_trod_xrd, savez_loaded_to_xp_dict, model):
         assert (t_xw == trd['transformer.h.0.ln_2']).all() # The torch calculation should match the recording
 
         # Compare with the torch model's calculation as recorded
-        # FAILS: assert xp.allclose(trd['transformer.h.0.ln_2'], t_h0_ln_2)
+        # FAILS: assert cpnp().allclose(trd['transformer.h.0.ln_2'], t_h0_ln_2)
 
 
 
@@ -564,12 +565,12 @@ def xpu_attn(x: NDArray, md: dict, h_ix: int):
             f'transformer.h.{h_ix}.attn.c_proj.weight',
     )
     md_selection = {}
-    md_selection[f'transformer.h.{h_ix}.ln_1.weight'] = xp.ones_like(md[f'transformer.h.{h_ix}.ln_1.weight'])
+    md_selection[f'transformer.h.{h_ix}.ln_1.weight'] = cpnp().ones_like(md[f'transformer.h.{h_ix}.ln_1.weight'])
     md_selection.update((k,v) for k,v in md.items() if k in keys)
 
     # We use a fake ln_1 with identity weights so the forward_model_dict has the value to add the residual to
 
-    return xpu.forward_model_dict(md_selection, xp.array([[198]]), x=x)
+    return xpu.forward_model_dict(md_selection, cpnp().array([[198]]), x=x)
 
 
 @pytest.mark.skip(reason="FIXME")
@@ -581,7 +582,7 @@ def test_xpu_attn(trd_xrd, savez_loaded_to_xp_dict):
     for i in range(12):
         x = xrd[f'transformer.h.{i}.ln_1']
         y = xpu_attn(x, md, i)
-        assert xp.all(y == xrd[f'transformer.h.{i}.attn.c_proj'])
+        assert cpnp().all(y == xrd[f'transformer.h.{i}.attn.c_proj'])
 
 
 @pytest.mark.skip(reason="FIXME")
@@ -594,7 +595,7 @@ def test_xpu_attn_v_torch(trd_xrd, savez_loaded_to_xp_dict, model):
         x = xrd[f'transformer.h.{i}.ln_1']
         y = xpu_attn(x, md, i)
         t_y = model.transformer.h[i].attn(x2t(x))
-        assert xp.allclose(y, t2x(t_y), rtol=1e-05, atol=1e-05)
+        assert cpnp().allclose(y, t2x(t_y), rtol=1e-05, atol=1e-05)
 
 
 ################
@@ -609,9 +610,9 @@ def diverg(a, b):
 
 
 def test_diverg():
-    assert diverg(xp.arange(4), xp.arange(4)) == 0
-    assert diverg(torch.arange(4), xp.arange(4)) == 0
-    assert diverg(torch.arange(4), xp.arange(1,5)) == 1 / 11
+    assert diverg(cpnp().arange(4), cpnp().arange(4)) == 0
+    assert diverg(torch.arange(4), cpnp().arange(4)) == 0
+    assert diverg(torch.arange(4), cpnp().arange(1,5)) == 1 / 11
 
 
 @pytest.mark.skip(reason="FIXME")
@@ -625,7 +626,7 @@ def test_recordings_divergence(trd_xrd):
 # Which of the recorded values are "close enough" to be considered to match?
 
 def closenuf(a, b):
-    return xp.allclose(a, b, rtol=1e-04, atol=1e-04, equal_nan=True)
+    return cpnp().allclose(a, b, rtol=1e-04, atol=1e-04, equal_nan=True)
 
 
 class Clump:
@@ -647,7 +648,7 @@ class Clump:
             a = t2x(a)
             name = f"t.{name}"
         
-        if isinstance(a, xp.ndarray) \
+        if isinstance(a, cpnp().ndarray) \
            and a.shape == self.ref_a.shape \
            and closenuf(a, self.ref_a):
             self.names.append(name)
@@ -681,10 +682,10 @@ def test_torch_xp_correspondence(trd_xrd, savez_loaded_to_xp_dict, model, brief_
     # xrd = dict((k.removesuffix('.weight'), v) for k,v in xp_record)
 
     trd, xrd = trd_xrd          # The recordings of torch model and xp model, in dictionary form
-    md = savez_loaded_to_xp_dict # The dictionary of named parameters in xp.ndarray form
+    md = savez_loaded_to_xp_dict # The dictionary of named parameters in cpnp().ndarray form
     idx_torch = torch.tensor([brief_toks], dtype=torch.int64)
     torch_logits, _ = model(idx_torch)
-    idx_xp = xp.asarray([brief_toks]) # one batch
+    idx_xp = cpnp().asarray([brief_toks]) # one batch
     xp_logits = xpu.forward_model_dict(md, idx_xp)
     
     clumps = []
@@ -701,7 +702,7 @@ def test_torch_xp_correspondence(trd_xrd, savez_loaded_to_xp_dict, model, brief_
     # close = [kx for kx, ax in xrd.items() if kx in trd.keys() and closenuf(ax, t2x(trd[kx]))]
 
     assert closenuf(xp_logits, t2x(torch_logits))
-    assert 0
+
 
 ################
 
@@ -715,7 +716,7 @@ if False:
     y_ref
     ref_model_record = config.model_record
     config.model_record = []
-    idx_xp = xp.array(idx)
+    idx_xp = cpnp().array(idx)
     y_xp = forward_model_dict(md, idx_xp, recorder=record_module_output)
     xp_model_record = config.model_record
     config.model_record = []

@@ -16,8 +16,7 @@ from io import BytesIO, DEFAULT_BUFFER_SIZE
 from unittest.mock import mock_open
 
 import lac_llm_xp as ll
-from lac_llm_xp import xp
-
+cpnp = ll.cpnp
 
 # Configure logging
 logging.basicConfig(
@@ -129,6 +128,7 @@ def model():
     return ll.provide_model(device="cuda:2")
 
 def test_llm_predictor(model):
+    xp = cpnp()
     lp = ll.LLMPredictor("internal", "cpu")
     assert all(lp([[42]]) == lp([[42]]))
     assert not xp.allclose(lp([[42]]), lp([[137]]))
@@ -181,6 +181,7 @@ def test_llm_prediction_service_2(model):
 
 
 def test_llm_prediction_service_multi_1():
+    xp = cpnp()
     # two different prediction services
     lps1 = ll.provide_prediction_service("internal", "cuda:2")
     lps2 = ll.provide_prediction_service("internal", "cuda:2")
